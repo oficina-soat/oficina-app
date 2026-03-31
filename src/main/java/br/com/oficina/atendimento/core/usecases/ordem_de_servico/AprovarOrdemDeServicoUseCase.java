@@ -1,0 +1,24 @@
+package br.com.oficina.atendimento.core.usecases.ordem_de_servico;
+
+import br.com.oficina.atendimento.core.entities.ordem_de_servico.OrdemDeServico;
+
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+
+public class AprovarOrdemDeServicoUseCase {
+
+    private final TransicaoDeEstadoDaOrdemDeServicoService transicaoDeEstadoDaOrdemDeServicoService;
+
+    public AprovarOrdemDeServicoUseCase(TransicaoDeEstadoDaOrdemDeServicoService transicaoDeEstadoDaOrdemDeServicoService) {
+        this.transicaoDeEstadoDaOrdemDeServicoService = transicaoDeEstadoDaOrdemDeServicoService;
+    }
+
+    public CompletableFuture<Void> executar(Command command) {
+        return transicaoDeEstadoDaOrdemDeServicoService.executarTransicaoSimples(
+                command.ordemDeServicoId(),
+                OrdemDeServico::iniciarExecucao);
+    }
+
+    public record Command(UUID ordemDeServicoId) {
+    }
+}

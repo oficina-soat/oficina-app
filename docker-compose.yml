@@ -1,0 +1,73 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD: app
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U app -d app"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025"
+      - "8025:8025"
+  jwt-keys:
+    image: alpine:3.20
+    command: >
+      sh -lc '
+        set -e;
+        apk add --no-cache openssl;
+        mkdir -p /jwt;
+        if [ ! -f /jwt/privateKey.pem ] || [ ! -f /jwt/publicKey.pem ]; then
+          echo "Generating JWT RSA keypair...";
+          openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out /jwt/privateKey.pem;
+          openssl pkey -in /jwt/privateKey.pem -pubout -out /jwt/publicKey.pem;
+          chmod 600 /jwt/privateKey.pem;
+          chmod 644 /jwt/publicKey.pem;
+        else
+          echo "JWT keys already exist.";
+        fi
+      '
+    volumes:
+      - jwt_keys:/jwt
+    restart: "no"
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        QUARKUS_DATASOURCE_DB_KIND: postgresql
+        QUARKUS_HIBERNATE_ORM_SQL_LOAD_SCRIPT: import.sql
+    depends_on:
+      db:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+      jwt-keys:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    environment:
+      QUARKUS_DATASOURCE_USERNAME: app
+      QUARKUS_DATASOURCE_PASSWORD: app
+      QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://db:5432/app
+      QUARKUS_MAILER_HOST: mailhog
+      QUARKUS_MAILER_PORT: 1025
+      QUARKUS_MAILER_TLS: "false"
+      QUARKUS_MAILER_START_TLS: DISABLED
+      QUARKUS_MAILER_MOCK: "false"
+      QUARKUS_MAILER_FROM: noreply@oficina.local
+      JAVA_TOOL_OPTIONS: >-
+        -Dquarkus.hibernate-orm.schema-management.strategy=drop-and-create
+      MP_JWT_VERIFY_PUBLICKEY_LOCATION: file:/jwt/publicKey.pem
+      SMALLRYE_JWT_SIGN_KEY_LOCATION: file:/jwt/privateKey.pem
+    volumes:
+      - jwt_keys:/jwt:ro
+volumes:
+  jwt_keys:
