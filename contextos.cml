@@ -1,0 +1,12 @@
+ContextMap {
+  contains Atendimento
+  contains Gestao_de_Pecas
+
+  Atendimento [P]<->[P] Gestao_de_Pecas
+}
+
+BoundedContext Atendimento {
+}
+
+BoundedContext Gestao_de_Pecas {
+}

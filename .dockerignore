@@ -1,0 +1,12 @@
+.git
+.github
+.idea
+.mvn/wrapper/maven-wrapper.jar
+.terraform
+infra/.terraform
+target
+src-gen
+*.iml
+*.log
+*.tfstate
+*.tfstate.*
