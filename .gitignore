@@ -41,6 +41,7 @@ nb-configuration.xml
 .tmp/
 .ai/mcp/mcp.json
 qodana.yaml
+src/main/resources/jwt/
 
 # Plugin directory
 /.quarkus/cli/plugins/

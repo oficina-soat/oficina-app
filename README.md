@@ -1,6 +1,8 @@
 # oficina-app
 
-Aplicação Quarkus da oficina mecânica, organizada como um monólito modular. Este repositório agora faz parte de um conjunto maior de projetos: a infra de banco de dados, a infra de Kubernetes e o domínio administrativo passaram a ser mantidos em repositórios dedicados.
+Aplicação Quarkus da oficina mecânica, organizada como um monólito modular e publicada no laboratório como imagem Docker em ECR com rollout no EKS.
+
+O repositório segue o mesmo ciclo de versionamento do `oficina-auth-lambda`: a versão fechada vem de `project.version` no `pom.xml`, o `push` em `develop` executa os testes e abre PR para `main`, e o deploy só acontece depois que esse PR é aceito.
 
 ## Escopo deste repositório
 
@@ -11,6 +13,8 @@ Este repositório concentra apenas o que pertence à aplicação:
 - componentes compartilhados em `common`
 - build, testes e empacotamento da aplicação
 - ambiente local com `docker compose`
+- publicação da imagem versionada da aplicação
+- rollout do Deployment existente no EKS
 
 Itens que não são mais gerenciados aqui:
 
@@ -24,9 +28,33 @@ Itens que não são mais gerenciados aqui:
 A aplicação depende de contratos e ambientes providos por outros repositórios do ecossistema. Na prática:
 
 - este repositório entrega a API e sua imagem executável
-- o repositório de infra de banco gerencia a camada de persistência fora do ambiente local
-- o repositório de infra k8s gerencia manifests, configurações de cluster e rollout
+- o repositório `../oficina-infra-db` gerencia RDS, migrations, seed de laboratório e o secret `oficina-database-env`
+- o repositório `../oficina-infra-k8s` gerencia EKS, ECR, API Gateway, manifests, ConfigMap e secrets do cluster
 - o repositório do domínio administrativo evolui de forma independente, sem compartilhar código de negócio aqui
+
+## Convenções padronizadas com os repos de infra
+
+- ambiente GitHub Actions: `lab`
+- nome padrão da infra compartilhada: `eks-lab`
+- banco padrão: `oficina-postgres-lab`
+- repositório ECR padrão: `oficina`
+- Deployment Kubernetes padrão: `default/oficina-app`
+- container padrão: `oficina-app`
+- tag da imagem: `project.version`
+- release GitHub: `v<project.version>`
+
+## Estrutura
+
+- `src/main/java`: domínios, casos de uso, adapters e recursos HTTP
+- `src/test/java`: testes unitários e de integração
+- `src/main/resources/application.properties`: configuração Quarkus por perfil
+- `scripts/build-image.sh`: build local/CI da imagem Docker
+- `scripts/push-image.sh`: login no ECR e publicação da imagem
+- `scripts/deploy-k8s.sh`: rollout da imagem no Deployment existente
+- `scripts/resolve-image-ref.sh`: resolução da URL/tag da imagem no ECR
+- `.github/workflows/ci.yml`: CI/CD principal
+- `.github/workflows/redeploy-app-lab.yml`: redeploy manual da imagem versionada
+- `docs/github-actions.md`: variáveis, secrets e detalhes dos workflows
 
 ## Arquitetura
 
@@ -67,6 +95,12 @@ Para desenvolvimento local e execução dos testes:
 
 ### Opção 1: modo desenvolvimento com Quarkus
 
+Gere um par local não versionado para JWT:
+
+```bash
+./scripts/generate-dev-jwt-keys.sh
+```
+
 ```bash
 ./mvnw quarkus:dev
 ```
@@ -97,7 +131,7 @@ Executar testes unitários:
 Executar testes de integração:
 
 ```bash
-./mvnw verify -DskipITs=false -DskipTests=true
+./mvnw verify -DskipITs=false
 ```
 
 Executar o build completo localmente:
@@ -111,7 +145,36 @@ Executar o build completo localmente:
 Para gerar a imagem localmente:
 
 ```bash
-docker build -t oficina-app .
+./scripts/build-image.sh oficina-app:local
 ```
 
-A publicação da imagem em registry e o deploy em ambientes gerenciados devem ser executados pelos repositórios responsáveis pela plataforma e pela operação.
+## Deploy
+
+O deploy automatizado fica em [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+
+- `develop`: quando a release da versão atual ainda não existe, executa testes unitários e de integração e cria ou atualiza o PR para `main`
+- PR mergeado em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
+
+Quando a release da versão atual já existe, commits novos não geram build, release nem deploy. Em `main`, versões fechadas não podem terminar com `-SNAPSHOT`, e uma versão já publicada não é sobrescrita.
+
+O deploy assume que a infraestrutura já foi criada pelos repositórios irmãos:
+
+- `../oficina-infra-k8s`: ECR, EKS, Deployment `oficina-app`, ConfigMap `oficina-app-config`, secret `oficina-jwt-keys` e API Gateway quando aplicável
+- `../oficina-infra-db`: RDS PostgreSQL, migrations, seed e secret `oficina-database-env`
+
+Detalhes de variáveis, secrets e workflows auxiliares: [docs/github-actions.md](docs/github-actions.md).
+
+## Operações manuais
+
+Redeploy da imagem versionada já fechada em `main`:
+
+```text
+Actions -> Redeploy App Lab -> Run workflow
+```
+
+## Validação local
+
+```bash
+./mvnw test
+bash -n scripts/*.sh
+```
