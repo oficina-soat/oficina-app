@@ -37,22 +37,30 @@ O PR automático de deploy não é aberto para versões `-SNAPSHOT`. Versões em
 
 ## Integração com os repos de infra
 
-Este repositório não cria RDS, EKS, ECR, secrets ou manifests Kubernetes.
+Este repositório não cria RDS, EKS, ECR nem API Gateway.
 
 Ele espera que:
 
-- `../oficina-infra-k8s` tenha criado ou reutilizado o ECR, o cluster EKS e o Deployment `oficina-app`
+- `../oficina-infra-k8s` tenha criado ou reutilizado o ECR e o cluster EKS
 - `../oficina-infra-db` tenha criado o RDS PostgreSQL e, quando aplicável, o secret Kubernetes `oficina-database-env`
-- `../oficina-infra-k8s` tenha criado o secret `oficina-jwt-keys` e o ConfigMap `oficina-app-config` usados pelo Deployment base
 
-O deploy deste repo executa apenas:
+No primeiro deploy, se o Deployment `oficina-app` ainda não existir, `scripts/deploy-k8s.sh` aplica os manifests mínimos em `k8s/overlays/lab`, alinhados ao padrão do repo `oficina-infra-k8s`. Esse bootstrap cria/atualiza:
+
+- Deployment e Service `oficina-app`
+- ConfigMap `oficina-app-config`
+- Deployment e Service `mailhog`
+- secret `oficina-jwt-keys`
+
+O secret `oficina-database-env` continua sendo responsabilidade do repo `oficina-infra-db`; se ele ainda não existir, o Deployment o trata como opcional.
+
+Nos deploys seguintes, o workflow executa apenas:
 
 ```bash
 kubectl set image deployment/oficina-app oficina-app=<ecr-url>:<project.version>
 kubectl rollout status deployment/oficina-app
 ```
 
-Se o Deployment ainda não existir, o workflow falha com orientação para executar primeiro o deploy inicial dos manifests pelo repo `oficina-infra-k8s`.
+Para desabilitar o bootstrap automático e exigir que os manifests já existam, configure `BOOTSTRAP_K8S_APP_IF_MISSING=false`.
 
 ## Autenticação AWS
 
@@ -78,6 +86,11 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `K8S_DEPLOYMENT_NAME`: default `oficina-app`
 - `K8S_CONTAINER_NAME`: default `oficina-app`
 - `K8S_ROLLOUT_TIMEOUT`: default `300s`
+- `BOOTSTRAP_K8S_APP_IF_MISSING`: default `true`
+- `K8S_APP_OVERLAY`: default `k8s/overlays/lab`
+- `K8S_DB_SECRET_NAME`: default `oficina-database-env`
+- `REGENERATE_JWT`: default `true`; gera um novo par de chaves para o secret `oficina-jwt-keys` durante o bootstrap
+- `JWT_DIR`: default `.tmp/jwt`
 
 ## Redeploy manual
 

@@ -29,7 +29,8 @@ A aplicação depende de contratos e ambientes providos por outros repositórios
 
 - este repositório entrega a API e sua imagem executável
 - o repositório `../oficina-infra-db` gerencia RDS, migrations, seed de laboratório e o secret `oficina-database-env`
-- o repositório `../oficina-infra-k8s` gerencia EKS, ECR, API Gateway, manifests, ConfigMap e secrets do cluster
+- o repositório `../oficina-infra-k8s` gerencia EKS, ECR e API Gateway
+- este repositório aplica os manifests mínimos da aplicação quando o Deployment ainda não existe e, nos deploys seguintes, atualiza somente a imagem
 - o repositório do domínio administrativo evolui de forma independente, sem compartilhar código de negócio aqui
 
 ## Convenções padronizadas com os repos de infra
@@ -52,6 +53,7 @@ A aplicação depende de contratos e ambientes providos por outros repositórios
 - `scripts/push-image.sh`: login no ECR e publicação da imagem
 - `scripts/deploy-k8s.sh`: rollout da imagem no Deployment existente
 - `scripts/resolve-image-ref.sh`: resolução da URL/tag da imagem no ECR
+- `k8s/overlays/lab`: manifests mínimos da aplicação alinhados ao overlay `lab` do repo `oficina-infra-k8s`
 - `.github/workflows/ci.yml`: CI/CD principal
 - `.github/workflows/redeploy-app-lab.yml`: redeploy manual da imagem versionada
 - `docs/github-actions.md`: variáveis, secrets e detalhes dos workflows
@@ -157,10 +159,12 @@ O deploy automatizado fica em [`.github/workflows/ci.yml`](.github/workflows/ci.
 
 Quando a release da versão atual já existe, commits novos não geram build, release nem deploy. Em `main`, versões fechadas não podem terminar com `-SNAPSHOT`, e uma versão já publicada não é sobrescrita.
 
-O deploy assume que a infraestrutura já foi criada pelos repositórios irmãos:
+O deploy assume que a infraestrutura base já foi criada pelos repositórios irmãos:
 
-- `../oficina-infra-k8s`: ECR, EKS, Deployment `oficina-app`, ConfigMap `oficina-app-config`, secret `oficina-jwt-keys` e API Gateway quando aplicável
+- `../oficina-infra-k8s`: ECR, EKS e API Gateway quando aplicável
 - `../oficina-infra-db`: RDS PostgreSQL, migrations, seed e secret `oficina-database-env`
+
+Quando o Deployment `oficina-app` ainda não existe, `scripts/deploy-k8s.sh` aplica automaticamente os manifests iniciais da aplicação, cria/atualiza o secret `oficina-jwt-keys` e usa o secret opcional `oficina-database-env` quando ele já existir.
 
 Detalhes de variáveis, secrets e workflows auxiliares: [docs/github-actions.md](docs/github-actions.md).
 
