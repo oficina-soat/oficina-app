@@ -101,6 +101,11 @@ jobs:
       K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
       K8S_CONTAINER_NAME: ${{ vars.K8S_CONTAINER_NAME || 'oficina-app' }}
       K8S_ROLLOUT_TIMEOUT: ${{ vars.K8S_ROLLOUT_TIMEOUT || '300s' }}
+      BOOTSTRAP_K8S_APP_IF_MISSING: ${{ vars.BOOTSTRAP_K8S_APP_IF_MISSING || 'true' }}
+      K8S_APP_OVERLAY: ${{ vars.K8S_APP_OVERLAY || 'k8s/overlays/lab' }}
+      K8S_DB_SECRET_NAME: ${{ vars.K8S_DB_SECRET_NAME || 'oficina-database-env' }}
+      REGENERATE_JWT: ${{ vars.REGENERATE_JWT || 'true' }}
+      JWT_DIR: ${{ vars.JWT_DIR || '.tmp/jwt' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
