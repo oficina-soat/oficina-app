@@ -5,7 +5,6 @@ import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OrdemDe
 import br.com.oficina.atendimento.framework.security.ActionTokenAction;
 import br.com.oficina.atendimento.framework.security.ActionTokenService;
 import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoCommandController;
-import br.com.oficina.common.tests.AutenticarUsuarioRequest;
 import br.com.oficina.common.tests.Helpers;
 import br.com.oficina.common.web.TipoDePapel;
 import br.com.oficina.gestao_de_pecas.framework.db.estoque.entities.EstoqueSaldoEntity;
@@ -540,16 +539,7 @@ class OrdemDeServicoResourceIT {
 
     public Uni<String> postStatusAsync(TipoDePapel tipoDePapel) {
         if (tipoDePapel == null) return Uni.createFrom().nullItem();
-        var client = vertx.createHttpClient();
-        return client.request(HttpMethod.POST, baseUri.getPort(), baseUri.getHost(), "/usuario/autenticar")
-                .chain(httpClientRequest -> {
-                    var autenticarUsuarioRequest = new AutenticarUsuarioRequest(tipoDePapel.valor(), "12345");
-                    String texto = getString(autenticarUsuarioRequest);
-                    return httpClientRequest.send(texto);
-                })
-                .chain(HttpClientResponse::body)
-                .onItem().transform(Buffer::toJsonObject)
-                .onItem().transform(json -> json.getString("access_token"));
+        return Uni.createFrom().item(Helpers.gerarToken(tipoDePapel));
     }
 
     private UUID getUuid(String responseBody, String fieldName) {

@@ -1,6 +1,6 @@
 package br.com.oficina.gestao_de_pecas.framework.web.estoque;
 
-import br.com.oficina.common.tests.AutenticarUsuarioRequest;
+import br.com.oficina.common.tests.Helpers;
 import br.com.oficina.common.web.TipoDePapel;
 import br.com.oficina.gestao_de_pecas.framework.db.estoque.entities.EstoqueSaldoEntity;
 import br.com.oficina.gestao_de_pecas.interfaces.controllers.EstoqueController;
@@ -13,7 +13,6 @@ import io.quarkus.test.vertx.RunOnVertxContext;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.mutiny.core.Vertx;
-import io.vertx.mutiny.core.buffer.Buffer;
 import io.vertx.mutiny.core.http.HttpClientResponse;
 import jakarta.inject.Inject;
 import org.junit.jupiter.api.Assertions;
@@ -71,16 +70,7 @@ class EstoqueResourceIT {
     }
 
     private Uni<String> postStatusAsync(TipoDePapel tipoDePapel) {
-        var client = vertx.createHttpClient();
-        return client.request(HttpMethod.POST, baseUri.getPort(), baseUri.getHost(), "/usuario/autenticar")
-                .chain(httpClientRequest -> {
-                    String texto = getString(new AutenticarUsuarioRequest(tipoDePapel.valor(), "12345"));
-                    return httpClientRequest.send(texto);
-                })
-                .chain(HttpClientResponse::body)
-                .onItem().transform(Buffer::toJsonObject)
-                .onItem().transform(json -> json.getString("access_token"))
-                .call(_ -> client.close());
+        return Uni.createFrom().item(Helpers.gerarToken(tipoDePapel));
     }
 
     private String getString(Object body) {

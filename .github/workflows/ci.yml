@@ -1,0 +1,389 @@
+name: CI/CD
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed
+  push:
+    branches:
+      - develop
+
+concurrency:
+  group: lab-app
+  cancel-in-progress: false
+
+jobs:
+  detect_app_version:
+    name: detect-app-version
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
+    permissions:
+      contents: read
+    outputs:
+      base_version: ${{ steps.version.outputs.base_version }}
+      current_version: ${{ steps.version.outputs.current_version }}
+      deploy_needed: ${{ steps.version.outputs.deploy_needed }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      release_exists: ${{ steps.version.outputs.release_exists }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+      version_changed: ${{ steps.version.outputs.version_changed }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect app version change
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          extract_version() {
+            sed -n '0,/<version>[[:space:]]*/{
+              s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
+            }' "$1" | head -n 1
+          }
+
+          current_version="$(extract_version pom.xml)"
+          if [[ -z "${current_version}" ]]; then
+            echo "Nao foi possivel identificar project.version em pom.xml" >&2
+            exit 1
+          fi
+
+          base_version=""
+          version_changed="false"
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            if git show "${{ github.event.before }}:pom.xml" > /tmp/base-pom.xml 2>/dev/null; then
+              base_version="$(extract_version /tmp/base-pom.xml)"
+              if [[ "${current_version}" != "${base_version}" ]]; then
+                version_changed="true"
+              fi
+            else
+              version_changed="true"
+            fi
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            version_changed="true"
+          fi
+
+          release_tag="v${current_version}"
+          release_exists="false"
+          if gh release view "${release_tag}" >/dev/null 2>&1; then
+            release_exists="true"
+          fi
+
+          deploy_needed="false"
+          if [[ "${release_exists}" == "false" ]]; then
+            deploy_needed="true"
+          fi
+
+          if [[ "${{ github.ref_name }}" == "main" && "${deploy_needed}" == "true" && "${current_version}" == *-SNAPSHOT ]]; then
+            echo "A versao fechada do app em main nao pode ser SNAPSHOT: ${current_version}" >&2
+            exit 1
+          fi
+
+          if [[ "${{ github.ref_name }}" == "main" && "${version_changed}" == "true" && "${release_exists}" == "true" ]]; then
+            echo "A release ${release_tag} ja existe. Incremente a versao do app antes de gerar nova imagem." >&2
+            exit 1
+          fi
+
+          {
+            echo "base_version=${base_version}"
+            echo "current_version=${current_version}"
+            echo "deploy_needed=${deploy_needed}"
+            echo "image_tag=${current_version}"
+            echo "release_exists=${release_exists}"
+            echo "release_tag=${release_tag}"
+            echo "version_changed=${version_changed}"
+          } >> "${GITHUB_OUTPUT}"
+
+          echo "Versao base: ${base_version:-<indisponivel>}"
+          echo "Versao atual: ${current_version}"
+          echo "Mudanca de versao: ${version_changed}"
+          echo "Deploy necessario: ${deploy_needed}"
+          echo "Release alvo: ${release_tag}"
+          echo "Release existente: ${release_exists}"
+
+  build_and_unit_tests:
+    name: build-and-unit-tests
+    runs-on: ubuntu-latest
+    needs: detect_app_version
+    if: >
+      needs.detect_app_version.outputs.deploy_needed == 'true' &&
+      (github.ref_name == 'develop' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Ensure mvnw is executable
+        run: chmod +x ./mvnw
+
+      - name: Build application and run unit tests
+        run: ./mvnw -B clean package -DskipITs=true -DfailIfNoTests=false
+
+  integration_tests:
+    name: integration-tests
+    runs-on: ubuntu-latest
+    needs:
+      - detect_app_version
+      - build_and_unit_tests
+    if: >
+      needs.detect_app_version.outputs.deploy_needed == 'true' &&
+      (github.ref_name == 'develop' || github.event_name == 'workflow_dispatch')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Ensure mvnw is executable
+        run: chmod +x ./mvnw
+
+      - name: Run integration tests
+        run: ./mvnw -B verify -DskipITs=false -DfailIfNoTests=false
+
+  create_deploy_pull_request:
+    name: create-deploy-pull-request
+    runs-on: ubuntu-latest
+    needs:
+      - detect_app_version
+      - integration_tests
+    if: >
+      github.event_name == 'push' &&
+      github.ref_name == 'develop' &&
+      needs.detect_app_version.outputs.deploy_needed == 'true'
+    permissions:
+      contents: read
+      pull-requests: write
+    env:
+      CURRENT_VERSION: ${{ needs.detect_app_version.outputs.current_version }}
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.detect_app_version.outputs.release_tag }}
+    steps:
+      - name: Create or update deploy pull request
+        shell: bash
+        run: |
+          if [[ "${CURRENT_VERSION}" == *-SNAPSHOT ]]; then
+            echo "Nao vou abrir PR de deploy para versao SNAPSHOT: ${CURRENT_VERSION}" >&2
+            exit 1
+          fi
+
+          title="Deploy oficina-app ${RELEASE_TAG}"
+          body="$(printf '%s\n\n%s\n%s\n%s\n%s\n\n%s\n' \
+            "Deploy automatico preparado pelo CI apos testes unitarios e integrados." \
+            "- Versao: ${CURRENT_VERSION}" \
+            "- Release alvo: ${RELEASE_TAG}" \
+            "- Branch origem: ${GITHUB_REF_NAME}" \
+            "- Commit validado: ${GITHUB_SHA}" \
+            "Ao aceitar este PR, o merge em main cria a imagem Docker, publica no ECR, fecha a release e executa o rollout no EKS.")"
+
+          pr_number="$(gh pr list \
+            --repo "${GITHUB_REPOSITORY}" \
+            --base main \
+            --head "${GITHUB_REF_NAME}" \
+            --state open \
+            --json number \
+            --jq '.[0].number // ""')"
+
+          if [[ -n "${pr_number}" ]]; then
+            gh pr edit "${pr_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}"
+            echo "PR de deploy atualizado: #${pr_number}"
+          else
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base main \
+              --head "${GITHUB_REF_NAME}" \
+              --title "${title}" \
+              --body "${body}"
+          fi
+
+  build_publish_release_image:
+    name: build-publish-release-image
+    runs-on: ubuntu-latest
+    needs:
+      - detect_app_version
+      - integration_tests
+    if: >
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      needs.detect_app_version.outputs.deploy_needed == 'true' &&
+      needs.integration_tests.result == 'skipped'
+    permissions:
+      contents: write
+    environment:
+      name: lab
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+      image_tag: ${{ steps.image.outputs.image_tag }}
+      repository_name: ${{ steps.image.outputs.repository_name }}
+      repository_url: ${{ steps.image.outputs.repository_url }}
+    env:
+      APP_VERSION: ${{ needs.detect_app_version.outputs.current_version }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME || 'oficina' }}
+      ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+      PUSH_LATEST_IMAGE: ${{ vars.PUSH_LATEST_IMAGE || 'false' }}
+      RELEASE_TAG: ${{ needs.detect_app_version.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate release version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "${APP_VERSION}" == *-SNAPSHOT ]]; then
+            echo "A versao fechada do app nao pode ser SNAPSHOT: ${APP_VERSION}" >&2
+            exit 1
+          fi
+
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "A release ${RELEASE_TAG} ja existe. Incremente a versao do app antes de gerar nova imagem." >&2
+            exit 1
+          fi
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Resolve image reference
+        id: image
+        shell: bash
+        run: |
+          chmod +x ./scripts/resolve-image-ref.sh
+          APP_IMAGE_TAG="${APP_VERSION}" ./scripts/resolve-image-ref.sh >/tmp/image-ref.txt
+          cat /tmp/image-ref.txt
+
+      - name: Ensure scripts are executable
+        run: chmod +x ./scripts/build-image.sh ./scripts/push-image.sh
+
+      - name: Build Docker image
+        run: ./scripts/build-image.sh "${{ steps.image.outputs.image_ref }}"
+
+      - name: Push Docker image
+        run: ./scripts/push-image.sh "${{ steps.image.outputs.image_ref }}"
+
+      - name: Optionally publish latest tag
+        if: env.PUSH_LATEST_IMAGE == 'true'
+        shell: bash
+        run: |
+          latest_ref="${{ steps.image.outputs.repository_url }}:latest"
+          docker tag "${{ steps.image.outputs.image_ref }}" "${latest_ref}"
+          ./scripts/push-image.sh "${latest_ref}"
+
+      - name: Prepare image metadata
+        shell: bash
+        run: |
+          mkdir -p target
+          {
+            echo "artifact=oficina-app"
+            echo "version=${APP_VERSION}"
+            echo "release=${RELEASE_TAG}"
+            echo "image=${{ steps.image.outputs.image_ref }}"
+            echo "repository=${{ steps.image.outputs.repository_url }}"
+            echo "tag=${{ steps.image.outputs.image_tag }}"
+            echo "commit=${GITHUB_SHA}"
+          } > target/oficina-app-image.txt
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            target/oficina-app-image.txt \
+            --target "${GITHUB_SHA}" \
+            --title "${RELEASE_TAG}" \
+            --notes "Imagem oficina-app ${APP_VERSION}: ${{ steps.image.outputs.image_ref }}"
+
+      - name: Upload image metadata
+        uses: actions/upload-artifact@v6
+        with:
+          name: oficina-app-image
+          path: target/oficina-app-image.txt
+          if-no-files-found: error
+
+  deploy_app:
+    name: deploy-app
+    runs-on: ubuntu-latest
+    needs:
+      - detect_app_version
+      - build_publish_release_image
+    if: >
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.base.ref == 'main' &&
+      needs.detect_app_version.outputs.deploy_needed == 'true'
+    permissions:
+      contents: read
+    environment:
+      name: lab
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'eks-lab' }}
+      IMAGE_REF: ${{ needs.build_publish_release_image.outputs.image_ref }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
+      K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
+      K8S_CONTAINER_NAME: ${{ vars.K8S_CONTAINER_NAME || 'oficina-app' }}
+      K8S_ROLLOUT_TIMEOUT: ${{ vars.K8S_ROLLOUT_TIMEOUT || '300s' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: latest
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Validate deploy inputs
+        shell: bash
+        run: |
+          missing=()
+          [[ -n "${AWS_REGION}" ]] || missing+=("AWS_REGION")
+          [[ -n "${EKS_CLUSTER_NAME}" ]] || missing+=("EKS_CLUSTER_NAME")
+          [[ -n "${IMAGE_REF}" ]] || missing+=("IMAGE_REF")
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "Missing GitHub Environment values for environment 'lab': ${missing[*]}" >&2
+            exit 1
+          fi
+
+          aws sts get-caller-identity >/dev/null
+
+      - name: Deploy app image to EKS
+        run: |
+          chmod +x ./scripts/deploy-k8s.sh
+          ./scripts/deploy-k8s.sh
