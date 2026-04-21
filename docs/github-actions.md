@@ -9,14 +9,14 @@ Workflows disponíveis:
 
 ## Gatilho
 
-- `push` em `develop`: verifica se a release da versão atual ainda não existe; quando houver deploy pendente, executa testes unitários e de integração e cria ou atualiza o PR `develop -> main`
+- `push` em `develop`: executa testes unitários e de integração e cria ou atualiza o PR `develop -> main`, mesmo quando a release da versão atual já existe
 - `pull_request` fechado e mergeado em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
-- `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes somente quando a release da versão atual ainda não existir; não publica imagem nem executa deploy
+- `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes; não publica imagem nem executa deploy
 - `workflow_dispatch` em `redeploy-app-lab.yml`: redeploy manual da imagem da release já fechada, somente quando a branch selecionada for `main`
 
 Os workflows que alteram a aplicação no cluster compartilham o grupo de `concurrency` `lab-app`, evitando deploys simultâneos do app.
 
-Quando a release da versão atual já existe, o `ci.yml` não executa testes, build da imagem, release nem deploy. Isso mantém commits posteriores sem incremento de `project.version` fora do caminho de deploy.
+Quando a release da versão atual já existe, o `push` em `develop` continua executando os testes e mantendo o PR automático aberto ou atualizado. O merge em `main` não gera nova imagem, release nem deploy enquanto `project.version` continuar apontando para uma release existente.
 
 Para que a criação automática do PR funcione, o repositório precisa permitir que o `GITHUB_TOKEN` crie pull requests: `Settings -> Actions -> General -> Workflow permissions -> Allow GitHub Actions to create and approve pull requests`.
 
@@ -31,9 +31,9 @@ O GitHub Release é a origem oficial da versão fechada do app. Em `main`, quand
 5. anexa `oficina-app-image.txt` com os metadados da imagem
 6. atualiza o Deployment `oficina-app` no EKS para a imagem versionada
 
-No fluxo automático, os testes unitários e de integração rodam antes, no `push` em `develop`, e o PR só é criado ou atualizado se esses testes passarem. Quando o PR é aceito, o evento de PR mergeado em `main` começa no build da imagem.
+No fluxo automático, os testes unitários e de integração rodam antes, no `push` em `develop`, e o PR só é criado ou atualizado se esses testes passarem. Quando o PR é aceito, o evento de PR mergeado em `main` começa no build da imagem somente se a release da versão atual ainda não existir.
 
-O PR automático de deploy não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT`. Se a versão mudar para uma release que já existe, o workflow falha e exige incremento de versão antes de gerar outra imagem.
+O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
 ## Integração com os repos de infra
 
@@ -42,7 +42,7 @@ Este repositório não cria RDS, EKS, ECR nem API Gateway.
 Ele espera que:
 
 - `../oficina-infra-k8s` tenha criado ou reutilizado o ECR e o cluster EKS
-- `../oficina-infra-db` tenha criado o RDS PostgreSQL e, quando aplicável, o secret Kubernetes `oficina-database-env`
+- `../oficina-infra-db` tenha criado o RDS PostgreSQL e o secret Kubernetes `oficina-database-env`
 
 No primeiro deploy, se o Deployment `oficina-app` ainda não existir, `scripts/deploy-k8s.sh` aplica os manifests mínimos em `k8s/overlays/lab`, alinhados ao padrão do repo `oficina-infra-k8s`. Esse bootstrap cria/atualiza:
 
@@ -51,9 +51,22 @@ No primeiro deploy, se o Deployment `oficina-app` ainda não existir, `scripts/d
 - Deployment e Service `mailhog`
 - secret `oficina-jwt-keys`
 
-O secret `oficina-database-env` continua sendo responsabilidade do repo `oficina-infra-db`; se ele ainda não existir, o Deployment o trata como opcional.
+O secret `oficina-database-env` continua sendo responsabilidade do repo `oficina-infra-db`. Por padrão, o deploy deste repo falha antes do rollout quando esse secret ainda não existe, porque a aplicação precisa das variáveis de datasource para iniciar.
 
-Nos deploys seguintes, o workflow executa apenas:
+O secret Kubernetes `oficina-jwt-keys` é derivado do AWS Secrets Manager por padrão. O deploy usa o secret `oficina/lab/jwt`; se ele ainda não existir, cria um par RSA 2048 bits e salva o JSON com os campos `privateKeyPem` e `publicKeyPem`. Em deploys seguintes, o mesmo par é reutilizado e reaplicado no Kubernetes.
+
+Esse fluxo remove a necessidade de cadastrar chaves JWT como GitHub Secrets neste repositório. Para o `oficina-auth-lambda` emitir tokens compatíveis, ele também precisa usar o mesmo par de chaves do Secrets Manager, ou o secret `oficina/lab/jwt` precisa ser criado manualmente com o par atualmente usado pelo lambda antes do primeiro deploy deste app.
+
+Rotação de JWT é uma operação explícita. Configure `ROTATE_JWT_SECRET=true` somente quando quiser gerar um novo par de chaves no Secrets Manager; tokens assinados com a chave anterior deixam de validar depois que a aplicação e o emissor passarem a usar a nova chave.
+
+As credenciais AWS usadas pelo workflow precisam permitir, no mínimo, estas ações para o secret JWT:
+
+- `secretsmanager:DescribeSecret`
+- `secretsmanager:CreateSecret`
+- `secretsmanager:GetSecretValue`
+- `secretsmanager:PutSecretValue`
+
+Nos deploys seguintes, depois de validar o secret de banco e reaplicar o secret JWT a partir da origem configurada, o workflow atualiza a imagem versionada:
 
 ```bash
 kubectl set image deployment/oficina-app oficina-app=<ecr-url>:<project.version>
@@ -89,8 +102,15 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `BOOTSTRAP_K8S_APP_IF_MISSING`: default `true`
 - `K8S_APP_OVERLAY`: default `k8s/overlays/lab`
 - `K8S_DB_SECRET_NAME`: default `oficina-database-env`
-- `REGENERATE_JWT`: default `true`; gera um novo par de chaves para o secret `oficina-jwt-keys` durante o bootstrap
-- `JWT_DIR`: default `.tmp/jwt`
+- `REQUIRE_K8S_DB_SECRET`: default `true`; falha antes do rollout quando o secret de banco ainda não existe
+- `K8S_JWT_SECRET_NAME`: default `oficina-jwt-keys`
+- `JWT_SECRET_SOURCE`: default `aws-secrets-manager`; também aceita `local-files` para uso manual
+- `JWT_SECRET_NAME`: default `oficina/lab/jwt`
+- `JWT_SECRET_PRIVATE_KEY_FIELD`: default `privateKeyPem`
+- `JWT_SECRET_PUBLIC_KEY_FIELD`: default `publicKeyPem`
+- `ROTATE_JWT_SECRET`: default `false`; quando `true`, gera e grava um novo par no AWS Secrets Manager
+- `REGENERATE_JWT`: default `false`; usado apenas com `JWT_SECRET_SOURCE=local-files`
+- `JWT_DIR`: default `.tmp/jwt`; usado apenas com `JWT_SECRET_SOURCE=local-files`
 
 ## Redeploy manual
 
