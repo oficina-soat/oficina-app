@@ -31,6 +31,7 @@ A aplicação depende de contratos e ambientes providos por outros repositórios
 - o repositório `../oficina-infra-db` gerencia RDS, migrations, seed de laboratório e o secret `oficina-database-env`
 - o repositório `../oficina-infra-k8s` gerencia EKS, ECR e API Gateway
 - este repositório aplica os manifests mínimos da aplicação quando o Deployment ainda não existe e, nos deploys seguintes, atualiza somente a imagem
+- este repositório cria/reaplica o secret Kubernetes `oficina-jwt-keys` a partir do AWS Secrets Manager
 - o repositório do domínio administrativo evolui de forma independente, sem compartilhar código de negócio aqui
 
 ## Convenções padronizadas com os repos de infra
@@ -164,7 +165,11 @@ O deploy assume que a infraestrutura base já foi criada pelos repositórios irm
 - `../oficina-infra-k8s`: ECR, EKS e API Gateway quando aplicável
 - `../oficina-infra-db`: RDS PostgreSQL, migrations, seed e secret `oficina-database-env`
 
-Quando o Deployment `oficina-app` ainda não existe, `scripts/deploy-k8s.sh` aplica automaticamente os manifests iniciais da aplicação, cria/atualiza o secret `oficina-jwt-keys` e usa o secret opcional `oficina-database-env` quando ele já existir.
+Quando o Deployment `oficina-app` ainda não existe, `scripts/deploy-k8s.sh` valida o secret de banco, cria/atualiza o secret `oficina-jwt-keys` e aplica automaticamente os manifests iniciais da aplicação.
+
+Por padrão, o deploy exige o secret `oficina-database-env`, criado pelo `../oficina-infra-db`, porque a aplicação precisa das variáveis `QUARKUS_DATASOURCE_USERNAME`, `QUARKUS_DATASOURCE_PASSWORD` e `QUARKUS_DATASOURCE_REACTIVE_URL` para iniciar no perfil de produção. Para permitir deploy sem banco, configure `REQUIRE_K8S_DB_SECRET=false`.
+
+As chaves JWT não precisam ser cadastradas como GitHub Secrets neste repositório. Por padrão, o deploy usa o AWS Secrets Manager como origem (`JWT_SECRET_NAME=oficina/lab/jwt`) e cria o par RSA se ele ainda não existir. O secret Kubernetes `oficina-jwt-keys` é atualizado a partir desse valor em cada deploy. Para manter compatibilidade com tokens emitidos pelo `oficina-auth-lambda`, o lambda deve usar o mesmo secret do Secrets Manager, ou esse secret deve ser criado previamente com o par de chaves já usado pelo lambda.
 
 Detalhes de variáveis, secrets e workflows auxiliares: [docs/github-actions.md](docs/github-actions.md).
 
