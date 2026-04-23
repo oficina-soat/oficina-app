@@ -2,14 +2,10 @@ name: CI/CD
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - main
-    types:
-      - closed
   push:
     branches:
       - develop
+      - main
 
 concurrency:
   group: lab-app
@@ -19,7 +15,6 @@ jobs:
   detect_app_version:
     name: detect-app-version
     runs-on: ubuntu-latest
-    if: github.event_name != 'pull_request' || github.event.pull_request.merged == true
     permissions:
       contents: read
     outputs:
@@ -239,9 +234,8 @@ jobs:
       - integration_tests
     if: >
       always() &&
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'main' &&
+      github.event_name == 'push' &&
+      github.ref_name == 'main' &&
       needs.detect_app_version.outputs.deploy_needed == 'true' &&
       needs.integration_tests.result == 'skipped'
     permissions:
@@ -351,9 +345,8 @@ jobs:
       - detect_app_version
       - build_publish_release_image
     if: >
-      github.event_name == 'pull_request' &&
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.base.ref == 'main' &&
+      github.event_name == 'push' &&
+      github.ref_name == 'main' &&
       needs.detect_app_version.outputs.deploy_needed == 'true'
     permissions:
       contents: read

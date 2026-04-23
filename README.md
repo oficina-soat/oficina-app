@@ -156,7 +156,7 @@ Para gerar a imagem localmente:
 O deploy automatizado fica em [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
 
 - `develop`: executa testes unitários e de integração e abre PR para `main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
-- PR mergeado em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
+- `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS após o merge do PR
 
 Quando a release da versão atual já existe, commits novos continuam passando por testes e PR, mas o merge em `main` não gera build de imagem, release nem deploy. Em `main`, versões fechadas não podem terminar com `-SNAPSHOT` quando houver deploy pendente, e uma versão já publicada não é sobrescrita.
 
