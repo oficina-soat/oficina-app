@@ -168,40 +168,68 @@ jobs:
       contents: read
       pull-requests: write
     env:
+      BASE_BRANCH: main
       CURRENT_VERSION: ${{ needs.detect_app_version.outputs.current_version }}
       DEPLOY_NEEDED: ${{ needs.detect_app_version.outputs.deploy_needed }}
       GH_TOKEN: ${{ github.token }}
+      HEAD_BRANCH: develop
       RELEASE_EXISTS: ${{ needs.detect_app_version.outputs.release_exists }}
       RELEASE_TAG: ${{ needs.detect_app_version.outputs.release_tag }}
     steps:
       - name: Create or update deploy pull request
         shell: bash
         run: |
+          if [[ "${GITHUB_EVENT_NAME}" != "push" || "${GITHUB_REF_NAME}" != "${HEAD_BRANCH}" ]]; then
+            echo "Este job so pode criar PR de ${HEAD_BRANCH} para ${BASE_BRANCH}; contexto atual: ${GITHUB_EVENT_NAME}/${GITHUB_REF_NAME}" >&2
+            exit 1
+          fi
+
+          if [[ "${HEAD_BRANCH}" == "${BASE_BRANCH}" ]]; then
+            echo "Branch origem e destino nao podem ser iguais: ${HEAD_BRANCH}" >&2
+            exit 1
+          fi
+
+          verify_pr_direction() {
+            local pr_ref="$1"
+            local actual_direction
+
+            actual_direction="$(gh pr view "${pr_ref}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json baseRefName,headRefName \
+              --jq '.headRefName + " -> " + .baseRefName')"
+
+            if [[ "${actual_direction}" != "${HEAD_BRANCH} -> ${BASE_BRANCH}" ]]; then
+              echo "Direcao inesperada do PR ${pr_ref}: ${actual_direction}. Esperado: ${HEAD_BRANCH} -> ${BASE_BRANCH}" >&2
+              exit 1
+            fi
+          }
+
           if [[ "${CURRENT_VERSION}" == *-SNAPSHOT ]]; then
             echo "Nao vou abrir PR de deploy para versao SNAPSHOT: ${CURRENT_VERSION}" >&2
             exit 1
           fi
 
-          title="Atualizar main com develop - oficina-app ${RELEASE_TAG}"
+          title="Atualizar ${BASE_BRANCH} com ${HEAD_BRANCH} - oficina-app ${RELEASE_TAG}"
           if [[ "${DEPLOY_NEEDED}" == "true" ]]; then
-            deploy_note="Ao aceitar este PR, o merge em main cria a imagem Docker, publica no ECR, fecha a release e executa o rollout no EKS."
+            deploy_note="Ao aceitar este PR, o merge em ${BASE_BRANCH} cria a imagem Docker, publica no ECR, fecha a release e executa o rollout no EKS."
           else
-            deploy_note="Ao aceitar este PR, o merge em main atualiza o codigo sem gerar nova imagem, release ou deploy, porque a release ${RELEASE_TAG} ja existe."
+            deploy_note="Ao aceitar este PR, o merge em ${BASE_BRANCH} atualiza o codigo sem gerar nova imagem, release ou deploy, porque a release ${RELEASE_TAG} ja existe."
           fi
 
-          body="$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n\n%s\n' \
+          body="$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n%s\n\n%s\n' \
             "PR automatico preparado pelo CI apos testes unitarios e integrados." \
             "- Versao: ${CURRENT_VERSION}" \
             "- Release alvo: ${RELEASE_TAG}" \
             "- Release existente: ${RELEASE_EXISTS}" \
-            "- Branch origem: ${GITHUB_REF_NAME}" \
+            "- Branch origem: ${HEAD_BRANCH}" \
+            "- Branch destino: ${BASE_BRANCH}" \
             "- Commit validado: ${GITHUB_SHA}" \
             "${deploy_note}")"
 
           pr_number="$(gh pr list \
             --repo "${GITHUB_REPOSITORY}" \
-            --base main \
-            --head "${GITHUB_REF_NAME}" \
+            --base "${BASE_BRANCH}" \
+            --head "${HEAD_BRANCH}" \
             --state open \
             --json number \
             --jq '.[0].number // ""')"
@@ -211,14 +239,17 @@ jobs:
               --repo "${GITHUB_REPOSITORY}" \
               --title "${title}" \
               --body "${body}"
+            verify_pr_direction "${pr_number}"
             echo "PR de deploy atualizado: #${pr_number}"
           else
-            gh pr create \
+            pr_url="$(gh pr create \
               --repo "${GITHUB_REPOSITORY}" \
-              --base main \
-              --head "${GITHUB_REF_NAME}" \
+              --base "${BASE_BRANCH}" \
+              --head "${HEAD_BRANCH}" \
               --title "${title}" \
-              --body "${body}"
+              --body "${body}")"
+            verify_pr_direction "${pr_url}"
+            echo "PR de deploy criado: ${pr_url}"
           fi
 
   build_publish_release_image:
