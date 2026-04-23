@@ -94,8 +94,8 @@ public class OrdemDeServicoQueryResource {
     @Path("{id}/acompanhar")
     public Uni<AcompanharOrdemDeServicoViewModel> acompanhar(@PathParam("id") String id,
                                                              @QueryParam("actionToken") String actionToken) {
-        ordemDeServicoMagicLinkController.validarAcompanhamento(id, actionToken);
-        return Uni.createFrom().completionStage(ordemDeServicoQueryController.acompanharOrdemDeServico(id))
+        return Uni.createFrom().completionStage(ordemDeServicoMagicLinkController.validarAcompanhamento(id, actionToken))
+                .chain(_ -> Uni.createFrom().completionStage(ordemDeServicoQueryController.acompanharOrdemDeServico(id)))
                 .replaceWith(acompanharOrdemDeServicoPresenterAdapter::viewModel);
     }
 

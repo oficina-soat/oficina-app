@@ -56,12 +56,16 @@ class OrdemDeServicoResourceIT {
     public static final String ordemDeServicoId = "2b2276e8-fa72-4f4c-a3b0-2c5b1bf427ef";
 
     @Test
-    void deveAcompanharComSucessoTest() {
-        var token = actionTokenService.gerar(ActionTokenAction.ACOMPANHAR, UUID.fromString(ordemDeServicoId), "cliente@email.com");
-        given().queryParam("actionToken", token)
-                .when().get("/ordem-de-servico/" + ordemDeServicoId + "/acompanhar")
-                .then().statusCode(200)
-                .body(Matchers.containsString(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO.name()));
+    @RunOnVertxContext
+    void deveAcompanharComSucessoTest(TransactionalUniAsserter asserter) {
+        var token = new AtomicReference<String>();
+        var id = UUID.fromString(ordemDeServicoId);
+
+        asserter.execute(() -> gerarActionToken(ActionTokenAction.ACOMPANHAR, id).invoke(token::set));
+        asserter.execute(() ->
+                executarGetComResposta("/ordem-de-servico/" + ordemDeServicoId + "/acompanhar?actionToken=" + token.get(), 200)
+                        .invoke(responseBody ->
+                                Assertions.assertTrue(responseBody.contains(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO.name()))));
     }
 
     @Test
@@ -500,6 +504,22 @@ class OrdemDeServicoResourceIT {
 
     private Uni<Void> executarPostSemBloquear(String path, Object body, TipoDePapel papel) {
         return executarPostComResposta(path, body, papel, 204).replaceWithVoid();
+    }
+
+    private Uni<String> gerarActionToken(ActionTokenAction action, UUID ordemDeServicoId) {
+        return Uni.createFrom().completionStage(() ->
+                actionTokenService.gerar(action, ordemDeServicoId, "cliente@email.com"));
+    }
+
+    private Uni<String> executarGetComResposta(String path, int expectedStatusCode) {
+        var client = vertx.createHttpClient();
+
+        return client.request(HttpMethod.GET, baseUri.getPort(), baseUri.getHost(), path)
+                .chain(request -> request.send())
+                .invoke(response -> Assertions.assertEquals(expectedStatusCode, response.statusCode()))
+                .chain(HttpClientResponse::body)
+                .map(Buffer::toString)
+                .call(_ -> client.close());
     }
 
     private Uni<String> executarPostComResposta(String path, Object body, TipoDePapel papel, int expectedStatusCode) {

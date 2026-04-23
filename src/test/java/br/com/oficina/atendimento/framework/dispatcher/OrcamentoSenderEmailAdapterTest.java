@@ -11,6 +11,7 @@ import org.mockito.ArgumentCaptor;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
@@ -31,10 +32,10 @@ class OrcamentoSenderEmailAdapterTest {
                 new BigDecimal("50.00"));
         when(presenter.viewModel()).thenReturn(viewModel);
         when(magicLinkService.gerarLinks(viewModel.ordemServicoId(), "cliente@oficina.com"))
-                .thenReturn(new MagicLinkService.MagicLinks(
+                .thenReturn(CompletableFuture.completedFuture(new MagicLinkService.MagicLinks(
                         "http://localhost:8080/acompanhar-link",
                         "http://localhost:8080/aprovar",
-                        "http://localhost:8080/recusar"));
+                        "http://localhost:8080/recusar")));
         when(emailService.enviar(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
                 .thenReturn(Uni.createFrom().voidItem());
 

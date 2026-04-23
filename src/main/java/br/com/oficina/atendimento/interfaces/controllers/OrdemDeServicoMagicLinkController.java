@@ -44,49 +44,62 @@ public class OrdemDeServicoMagicLinkController {
     }
 
     public CompletableFuture<Void> acompanhar(String id, String actionToken) {
-        validarAcompanhamento(id, actionToken);
-        return acompanharOrdemDeServicoUseCase.executar(new AcompanharOrdemDeServicoUseCase.Command(UUID.fromString(id)))
+        return validarAcompanhamento(id, actionToken)
+                .thenCompose(_ -> acompanharOrdemDeServicoUseCase.executar(new AcompanharOrdemDeServicoUseCase.Command(UUID.fromString(id))))
                 .thenRun(() -> magicLinkAcompanhamentoPresenterAdapter.present(acompanharOrdemDeServicoPresenterAdapter.viewModel()));
     }
 
     public CompletableFuture<Void> abrirAprovacao(String id, String actionToken) {
-        validarAprovacao(id, actionToken);
-        magicLinkConfirmacaoPresenterAdapter.present(MagicLinkActionPage.APROVAR, id, actionToken);
-        return CompletableFuture.completedFuture(null);
+        return validarAprovacao(id, actionToken)
+                .thenRun(() -> magicLinkConfirmacaoPresenterAdapter.present(MagicLinkActionPage.APROVAR, id, actionToken));
     }
 
     public CompletableFuture<Void> abrirRecusa(String id, String actionToken) {
-        validarRecusa(id, actionToken);
-        magicLinkConfirmacaoPresenterAdapter.present(MagicLinkActionPage.RECUSAR, id, actionToken);
-        return CompletableFuture.completedFuture(null);
+        return validarRecusa(id, actionToken)
+                .thenRun(() -> magicLinkConfirmacaoPresenterAdapter.present(MagicLinkActionPage.RECUSAR, id, actionToken));
     }
 
     public CompletableFuture<Void> confirmarAprovacao(String id, String actionToken) {
-        validarAprovacao(id, actionToken);
-        return aprovarOrdemDeServicoUseCase.executar(new AprovarOrdemDeServicoUseCase.Command(UUID.fromString(id)))
+        return consumirAprovacao(id, actionToken)
+                .thenCompose(_ -> aprovarOrdemDeServicoUseCase.executar(new AprovarOrdemDeServicoUseCase.Command(UUID.fromString(id))))
                 .thenRun(() -> magicLinkResultadoPresenterAdapter.presentSucesso(MagicLinkActionPage.APROVAR));
     }
 
     public CompletableFuture<Void> confirmarRecusa(String id, String actionToken) {
-        validarRecusa(id, actionToken);
-        return recusarOrdemDeServicoUseCase.executar(new RecusarOrdemDeServicoUseCase.Command(UUID.fromString(id)))
+        return consumirRecusa(id, actionToken)
+                .thenCompose(_ -> recusarOrdemDeServicoUseCase.executar(new RecusarOrdemDeServicoUseCase.Command(UUID.fromString(id))))
                 .thenRun(() -> magicLinkResultadoPresenterAdapter.presentSucesso(MagicLinkActionPage.RECUSAR));
     }
 
-    public void validarAcompanhamento(String id, String actionToken) {
-        validar(id, actionToken, AcaoDeMagicLink.ACOMPANHAR);
+    public CompletableFuture<Void> validarAcompanhamento(String id, String actionToken) {
+        return validar(id, actionToken, AcaoDeMagicLink.ACOMPANHAR);
     }
 
-    public void validarAprovacao(String id, String actionToken) {
-        validar(id, actionToken, AcaoDeMagicLink.APROVAR);
+    public CompletableFuture<Void> validarAprovacao(String id, String actionToken) {
+        return validar(id, actionToken, AcaoDeMagicLink.APROVAR);
     }
 
-    public void validarRecusa(String id, String actionToken) {
-        validar(id, actionToken, AcaoDeMagicLink.RECUSAR);
+    public CompletableFuture<Void> validarRecusa(String id, String actionToken) {
+        return validar(id, actionToken, AcaoDeMagicLink.RECUSAR);
     }
 
-    private void validar(String id, String actionToken, AcaoDeMagicLink acao) {
-        validarMagicLinkUseCase.executar(new ValidarMagicLinkUseCase.Command(
+    private CompletableFuture<Void> consumirAprovacao(String id, String actionToken) {
+        return consumir(id, actionToken, AcaoDeMagicLink.APROVAR);
+    }
+
+    private CompletableFuture<Void> consumirRecusa(String id, String actionToken) {
+        return consumir(id, actionToken, AcaoDeMagicLink.RECUSAR);
+    }
+
+    private CompletableFuture<Void> validar(String id, String actionToken, AcaoDeMagicLink acao) {
+        return validarMagicLinkUseCase.executar(new ValidarMagicLinkUseCase.Command(
+                actionToken,
+                acao,
+                UUID.fromString(id)));
+    }
+
+    private CompletableFuture<Void> consumir(String id, String actionToken, AcaoDeMagicLink acao) {
+        return validarMagicLinkUseCase.consumir(new ValidarMagicLinkUseCase.Command(
                 actionToken,
                 acao,
                 UUID.fromString(id)));
