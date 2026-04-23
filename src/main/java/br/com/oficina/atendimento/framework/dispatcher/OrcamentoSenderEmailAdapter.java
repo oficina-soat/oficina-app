@@ -33,21 +33,21 @@ public class OrcamentoSenderEmailAdapter implements OrcamentoSender {
     @Override
     public CompletableFuture<Void> enviar() {
         var viewModel = orcamentoPresenterAdapter.viewModel();
-        var mensagem = montarMensagem(viewModel);
-        return emailService.enviar(
-                        mensagem,
-                        montarAssunto(viewModel),
-                        emailDestino)
-                .subscribeAsCompletionStage();
+        return montarMensagem(viewModel)
+                .thenCompose(mensagem -> emailService.enviar(
+                                mensagem,
+                                montarAssunto(viewModel),
+                                emailDestino)
+                        .subscribeAsCompletionStage());
     }
 
     public String montarAssunto(OrcamentoViewModel orcamentoViewModel) {
         return "Orçamento da Ordem de Serviço " + orcamentoViewModel.ordemServicoId();
     }
 
-    String montarMensagem(OrcamentoViewModel orcamentoViewModel) {
-        var links = magicLinkService.gerarLinks(orcamentoViewModel.ordemServicoId(), emailDestino);
-        return """
+    CompletableFuture<String> montarMensagem(OrcamentoViewModel orcamentoViewModel) {
+        return magicLinkService.gerarLinks(orcamentoViewModel.ordemServicoId(), emailDestino)
+                .thenApply(links -> """
                 %s
 
                 Links para acompanhar o orçamento:
@@ -58,6 +58,6 @@ public class OrcamentoSenderEmailAdapter implements OrcamentoSender {
                 orcamentoViewModel.texto().trim(),
                 links.acompanhar(),
                 links.aprovar(),
-                links.recusar());
+                links.recusar()));
     }
 }

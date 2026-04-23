@@ -57,6 +57,8 @@ O secret Kubernetes `oficina-jwt-keys` é derivado do AWS Secrets Manager por pa
 
 Esse fluxo remove a necessidade de cadastrar chaves JWT como GitHub Secrets neste repositório. Para o `oficina-auth-lambda` emitir tokens compatíveis, ele também precisa usar o mesmo par de chaves do Secrets Manager, ou o secret `oficina/lab/jwt` precisa ser criado manualmente com o par atualmente usado pelo lambda antes do primeiro deploy deste app.
 
+Quando a autenticação estiver publicada no API Gateway, configure `OFICINA_AUTH_ISSUER` com a URL pública do gateway e `OFICINA_AUTH_JWKS_URI` com `https://.../.well-known/jwks.json`. Sem essas variáveis, o deploy preserva o modo legado e valida a chave pública montada em `/jwt/publicKey.pem`.
+
 Rotação de JWT é uma operação explícita. Configure `ROTATE_JWT_SECRET=true` somente quando quiser gerar um novo par de chaves no Secrets Manager; tokens assinados com a chave anterior deixam de validar depois que a aplicação e o emissor passarem a usar a nova chave.
 
 As credenciais AWS usadas pelo workflow precisam permitir, no mínimo, estas ações para o secret JWT:
@@ -111,6 +113,8 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `ROTATE_JWT_SECRET`: default `false`; quando `true`, gera e grava um novo par no AWS Secrets Manager
 - `REGENERATE_JWT`: default `false`; usado apenas com `JWT_SECRET_SOURCE=local-files`
 - `JWT_DIR`: default `.tmp/jwt`; usado apenas com `JWT_SECRET_SOURCE=local-files`
+- `OFICINA_AUTH_ISSUER`: issuer esperado nos access tokens; default `oficina-api`
+- `OFICINA_AUTH_JWKS_URI`: JWKS ou chave pública usada para validar access tokens; default `file:/jwt/publicKey.pem`
 
 ## Redeploy manual
 

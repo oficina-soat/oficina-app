@@ -11,6 +11,7 @@ public class Helpers {
     public static String gerarToken(TipoDePapel tipoDePapel) {
         return Jwt.issuer("oficina-api")
                 .subject(tipoDePapel.valor())
+                .audience("oficina-app")
                 .upn(tipoDePapel.valor())
                 .groups(Set.of(tipoDePapel.valor()))
                 .expiresAt(Instant.now().plusSeconds(3600))

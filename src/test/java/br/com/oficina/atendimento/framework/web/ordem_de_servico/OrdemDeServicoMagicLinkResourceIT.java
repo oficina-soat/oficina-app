@@ -23,6 +23,7 @@ import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 @QuarkusTest
 class OrdemDeServicoMagicLinkResourceIT {
@@ -34,12 +35,13 @@ class OrdemDeServicoMagicLinkResourceIT {
     @RunOnVertxContext
     void deveExibirPaginaDeAcompanhamentoPorMagicLinkTest(TransactionalUniAsserter asserter) {
         var ordemDeServicoId = UUID.randomUUID();
-        var token = actionTokenService.gerar(ActionTokenAction.ACOMPANHAR, ordemDeServicoId, "cliente@email.com");
+        var token = new AtomicReference<String>();
 
+        asserter.execute(() -> gerarActionToken(ActionTokenAction.ACOMPANHAR, ordemDeServicoId).invoke(token::set));
         asserter.execute(() -> criarOrdemDeServico(ordemDeServicoId, TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO));
 
         asserter.execute(() ->
-                executarGetComResposta("/ordem-de-servico/" + ordemDeServicoId + "/acompanhar-link?actionToken=" + encode(token), 200)
+                executarGetComResposta("/ordem-de-servico/" + ordemDeServicoId + "/acompanhar-link?actionToken=" + encode(token.get()), 200)
                         .invoke(responseBody -> {
                             Assertions.assertTrue(responseBody.contains("Acompanhar ordem de serviço"));
                             Assertions.assertTrue(responseBody.contains("Estado atual"));
@@ -51,12 +53,13 @@ class OrdemDeServicoMagicLinkResourceIT {
     @RunOnVertxContext
     void deveExibirPaginaDeConfirmacaoDeAprovacaoPorMagicLinkTest(TransactionalUniAsserter asserter) {
         var ordemDeServicoId = UUID.randomUUID();
-        var token = actionTokenService.gerar(ActionTokenAction.APROVAR, ordemDeServicoId, "cliente@email.com");
+        var token = new AtomicReference<String>();
 
+        asserter.execute(() -> gerarActionToken(ActionTokenAction.APROVAR, ordemDeServicoId).invoke(token::set));
         asserter.execute(() -> criarOrdemDeServico(ordemDeServicoId, TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO));
 
         asserter.execute(() ->
-                executarGetComResposta("/ordem-de-servico/" + ordemDeServicoId + "/aprovar-link?actionToken=" + encode(token), 200)
+                executarGetComResposta("/ordem-de-servico/" + ordemDeServicoId + "/aprovar-link?actionToken=" + encode(token.get()), 200)
                         .invoke(responseBody -> {
                             Assertions.assertTrue(responseBody.contains("Aprovar orçamento"));
                             Assertions.assertTrue(responseBody.contains("Confirmar aprovação"));
@@ -77,8 +80,9 @@ class OrdemDeServicoMagicLinkResourceIT {
     @RunOnVertxContext
     void deveAprovarPorMagicLinkComSucessoTest(TransactionalUniAsserter asserter) {
         var ordemDeServicoId = UUID.randomUUID();
-        var token = actionTokenService.gerar(ActionTokenAction.APROVAR, ordemDeServicoId, "cliente@email.com");
+        var token = new AtomicReference<String>();
 
+        asserter.execute(() -> gerarActionToken(ActionTokenAction.APROVAR, ordemDeServicoId).invoke(token::set));
         asserter.execute(() -> criarOrdemDeServico(ordemDeServicoId, TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO));
 
         asserter.execute(() ->
@@ -89,7 +93,7 @@ class OrdemDeServicoMagicLinkResourceIT {
         asserter.execute(() ->
                 executarPostFormComResposta(
                         "/ordem-de-servico/" + ordemDeServicoId + "/aprovar-link",
-                        token,
+                        token.get(),
                         200)
                         .invoke(responseBody -> Assertions.assertTrue(responseBody.contains("Orçamento aprovado"))));
 
@@ -103,8 +107,9 @@ class OrdemDeServicoMagicLinkResourceIT {
     @RunOnVertxContext
     void deveRecusarPorMagicLinkComSucessoTest(TransactionalUniAsserter asserter) {
         var ordemDeServicoId = UUID.randomUUID();
-        var token = actionTokenService.gerar(ActionTokenAction.RECUSAR, ordemDeServicoId, "cliente@email.com");
+        var token = new AtomicReference<String>();
 
+        asserter.execute(() -> gerarActionToken(ActionTokenAction.RECUSAR, ordemDeServicoId).invoke(token::set));
         asserter.execute(() -> criarOrdemDeServico(ordemDeServicoId, TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO));
 
         asserter.execute(() ->
@@ -115,7 +120,7 @@ class OrdemDeServicoMagicLinkResourceIT {
         asserter.execute(() ->
                 executarPostFormComResposta(
                         "/ordem-de-servico/" + ordemDeServicoId + "/recusar-link",
-                        token,
+                        token.get(),
                         200)
                         .invoke(responseBody -> Assertions.assertTrue(responseBody.contains("Orçamento recusado"))));
 
@@ -134,6 +139,11 @@ class OrdemDeServicoMagicLinkResourceIT {
         ordemDeServicoEntity.atualizadoEm = ordemDeServicoEntity.criadoEm;
         ordemDeServicoEntity.estadoAtual = estado;
         return ordemDeServicoEntity.persistir().replaceWithVoid();
+    }
+
+    private Uni<String> gerarActionToken(ActionTokenAction action, UUID ordemDeServicoId) {
+        return Uni.createFrom().completionStage(() ->
+                actionTokenService.gerar(action, ordemDeServicoId, "cliente@email.com"));
     }
 
     private Uni<String> executarGetComResposta(String path, int expectedStatusCode) {

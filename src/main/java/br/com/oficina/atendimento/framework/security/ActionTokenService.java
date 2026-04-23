@@ -1,67 +1,99 @@
 package br.com.oficina.atendimento.framework.security;
 
+import io.quarkus.hibernate.reactive.panache.Panache;
 import io.quarkus.security.UnauthorizedException;
-import io.smallrye.jwt.auth.principal.JWTParser;
-import io.smallrye.jwt.build.Jwt;
-import io.smallrye.jwt.auth.principal.ParseException;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
-import jakarta.inject.Inject;
-import org.eclipse.microprofile.jwt.JsonWebToken;
 
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.security.SecureRandom;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.HexFormat;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 @ApplicationScoped
 public class ActionTokenService {
 
-    private static final String CLAIM_TOKEN_TYPE = "token_type";
-    private static final String CLAIM_ACTION = "action";
-    private static final String CLAIM_ORDEM_SERVICO_ID = "ordem_servico_id";
-    private static final String CLAIM_EMAIL = "email";
-    private static final String TOKEN_TYPE_ACTION_LINK = "ACTION_LINK";
-    private static final String ISSUER = "oficina-api";
     private static final Duration TOKEN_TTL = Duration.ofHours(24);
+    private static final SecureRandom SECURE_RANDOM = new SecureRandom();
 
-    @Inject JWTParser jwtParser;
-
-    public String gerar(ActionTokenAction action, UUID ordemDeServicoId, String email) {
-        var now = Instant.now();
-        return Jwt.issuer(ISSUER)
-                .subject(email != null && !email.isBlank() ? email : "cliente")
-                .claim(CLAIM_TOKEN_TYPE, TOKEN_TYPE_ACTION_LINK)
-                .claim(CLAIM_ACTION, action.name())
-                .claim(CLAIM_ORDEM_SERVICO_ID, ordemDeServicoId.toString())
-                .claim(CLAIM_EMAIL, email)
-                .issuedAt(now)
-                .expiresAt(now.plus(TOKEN_TTL))
-                .sign();
+    public CompletableFuture<String> gerar(ActionTokenAction action, UUID ordemDeServicoId, String email) {
+        return Panache.withTransaction(() -> gerarUni(action, ordemDeServicoId, email))
+                .subscribeAsCompletionStage()
+                .toCompletableFuture();
     }
 
-    public void validarOuFalhar(String token, ActionTokenAction actionEsperada, UUID ordemDeServicoEsperada) {
+    Uni<String> gerarUni(ActionTokenAction action, UUID ordemDeServicoId, String email) {
+        String token = novoToken();
+        var entity = new MagicLinkActionTokenEntity();
+        entity.tokenHash = hash(token);
+        entity.action = action;
+        entity.ordemDeServicoId = ordemDeServicoId;
+        entity.email = email;
+        entity.expiresAt = Instant.now().plus(TOKEN_TTL);
+        return entity.persist()
+                .replaceWith(token);
+    }
+
+    public CompletableFuture<Void> validarOuFalhar(String token, ActionTokenAction actionEsperada, UUID ordemDeServicoEsperada) {
+        return Panache.withSession(() -> MagicLinkActionTokenEntity.findByHash(hash(token))
+                        .onItem().ifNull().failWith(() -> new UnauthorizedException("Action token inválido"))
+                        .invoke(entity -> validar(entity, actionEsperada, ordemDeServicoEsperada, false))
+                        .replaceWithVoid())
+                .subscribeAsCompletionStage()
+                .toCompletableFuture();
+    }
+
+    public CompletableFuture<Void> consumirOuFalhar(String token, ActionTokenAction actionEsperada, UUID ordemDeServicoEsperada) {
+        return Panache.withTransaction(() -> MagicLinkActionTokenEntity.findByHashForUpdate(hash(token))
+                        .onItem().ifNull().failWith(() -> new UnauthorizedException("Action token inválido"))
+                        .invoke(entity -> validar(entity, actionEsperada, ordemDeServicoEsperada, true))
+                        .invoke(entity -> entity.usedAt = Instant.now())
+                        .replaceWithVoid())
+                .subscribeAsCompletionStage()
+                .toCompletableFuture();
+    }
+
+    private static void validar(MagicLinkActionTokenEntity entity,
+                                ActionTokenAction actionEsperada,
+                                UUID ordemDeServicoEsperada,
+                                boolean exigirNaoUsado) {
+        if (entity == null) {
+            throw new UnauthorizedException("Action token inválido");
+        }
+        if (entity.expiresAt == null || entity.expiresAt.isBefore(Instant.now())) {
+            throw new UnauthorizedException("Action token expirado");
+        }
+        if (exigirNaoUsado && entity.usedAt != null) {
+            throw new UnauthorizedException("Action token já utilizado");
+        }
+        if (entity.action != actionEsperada) {
+            throw new UnauthorizedException("Ação do token inválida");
+        }
+        if (!ordemDeServicoEsperada.equals(entity.ordemDeServicoId)) {
+            throw new UnauthorizedException("Token não corresponde à ordem de serviço");
+        }
+    }
+
+    private static String novoToken() {
+        byte[] bytes = new byte[32];
+        SECURE_RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private static String hash(String token) {
         if (token == null || token.isBlank()) {
             throw new UnauthorizedException("Action token é obrigatório");
         }
-
-        final JsonWebToken jwt;
         try {
-            jwt = jwtParser.parse(token);
-        } catch (ParseException e) {
-            throw new UnauthorizedException("Action token inválido");
-        }
-
-        var tokenType = jwt.getClaim(CLAIM_TOKEN_TYPE);
-        var action = jwt.getClaim(CLAIM_ACTION);
-        var ordemDeServicoId = jwt.getClaim(CLAIM_ORDEM_SERVICO_ID);
-
-        if (!TOKEN_TYPE_ACTION_LINK.equals(tokenType)) {
-            throw new UnauthorizedException("Tipo de token inválido");
-        }
-        if (!actionEsperada.name().equals(action)) {
-            throw new UnauthorizedException("Ação do token inválida");
-        }
-        if (!ordemDeServicoEsperada.toString().equals(ordemDeServicoId)) {
-            throw new UnauthorizedException("Token não corresponde à ordem de serviço");
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8)));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 indisponível", exception);
         }
     }
 }

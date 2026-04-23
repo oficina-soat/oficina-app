@@ -21,6 +21,8 @@ JWT_SECRET_PUBLIC_KEY_FIELD="${JWT_SECRET_PUBLIC_KEY_FIELD:-publicKeyPem}"
 ROTATE_JWT_SECRET="${ROTATE_JWT_SECRET:-false}"
 JWT_DIR="${JWT_DIR:-.tmp/jwt}"
 REGENERATE_JWT="${REGENERATE_JWT:-false}"
+OFICINA_AUTH_ISSUER="${OFICINA_AUTH_ISSUER:-oficina-api}"
+OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_JWKS_URI:-file:/jwt/publicKey.pem}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
@@ -102,8 +104,15 @@ escape_sed_replacement() {
 
 render_overlay() {
   local escaped_image_ref
+  local escaped_auth_issuer
+  local escaped_auth_jwks_uri
   escaped_image_ref="$(escape_sed_replacement "${IMAGE_REF}")"
-  kubectl kustomize "${K8S_APP_OVERLAY}" | sed "s|IMAGE_PLACEHOLDER|${escaped_image_ref}|g"
+  escaped_auth_issuer="$(escape_sed_replacement "${OFICINA_AUTH_ISSUER}")"
+  escaped_auth_jwks_uri="$(escape_sed_replacement "${OFICINA_AUTH_JWKS_URI}")"
+  kubectl kustomize "${K8S_APP_OVERLAY}" |
+    sed "s|IMAGE_PLACEHOLDER|${escaped_image_ref}|g" |
+    sed "s|OFICINA_AUTH_ISSUER_PLACEHOLDER|${escaped_auth_issuer}|g" |
+    sed "s|OFICINA_AUTH_JWKS_URI_PLACEHOLDER|${escaped_auth_jwks_uri}|g"
 }
 
 current_deployment_image() {
