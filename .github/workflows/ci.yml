@@ -345,9 +345,11 @@ jobs:
       - detect_app_version
       - build_publish_release_image
     if: >
+      always() &&
       github.event_name == 'push' &&
       github.ref_name == 'main' &&
-      needs.detect_app_version.outputs.deploy_needed == 'true'
+      needs.detect_app_version.outputs.deploy_needed == 'true' &&
+      needs.build_publish_release_image.result == 'success'
     permissions:
       contents: read
     environment:
