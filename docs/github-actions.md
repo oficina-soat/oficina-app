@@ -10,7 +10,7 @@ Workflows disponíveis:
 ## Gatilho
 
 - `push` em `develop`: executa testes unitários e de integração e abre o PR `develop -> main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
-- `pull_request` fechado e mergeado em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
+- `push` em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
 - `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes; não publica imagem nem executa deploy
 - `workflow_dispatch` em `redeploy-app-lab.yml`: redeploy manual da imagem da release já fechada, somente quando a branch selecionada for `main`
 
@@ -31,7 +31,7 @@ O GitHub Release é a origem oficial da versão fechada do app. Em `main`, quand
 5. anexa `oficina-app-image.txt` com os metadados da imagem
 6. atualiza o Deployment `oficina-app` no EKS para a imagem versionada
 
-No fluxo automático, os testes unitários e de integração rodam antes, no `push` em `develop`, e o PR só é criado se esses testes passarem, houver diferença entre `develop` e `main`, e ainda não existir PR aberto. Quando o PR é aceito, o evento de PR mergeado em `main` começa no build da imagem somente se a release da versão atual ainda não existir.
+No fluxo automático, os testes unitários e de integração rodam antes, no `push` em `develop`, e o PR só é criado se esses testes passarem, houver diferença entre `develop` e `main`, e ainda não existir PR aberto. Quando o PR é aceito, o `push` gerado em `main` começa no build da imagem somente se a release da versão atual ainda não existir.
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
