@@ -1,0 +1,51 @@
+# Maven Wrapper
+prefix_rule(pattern = ["./mvnw", "-version"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "test"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "verify"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "package"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "clean"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "clean", "test"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "clean", "verify"], decision = "allow")
+
+# Quarkus
+prefix_rule(pattern = ["./mvnw", "quarkus:dev"], decision = "allow")
+prefix_rule(pattern = ["./mvnw", "quarkus:test"], decision = "allow")
+
+# Scripts locais de validação
+prefix_rule(pattern = ["scripts/check-env.sh"], decision = "allow")
+prefix_rule(pattern = ["./scripts/check-env.sh"], decision = "allow")
+prefix_rule(pattern = ["scripts/check-env.sh", "--require-aws"], decision = "allow")
+prefix_rule(pattern = ["./scripts/check-env.sh", "--require-aws"], decision = "allow")
+prefix_rule(pattern = ["bash", "scripts/check-env.sh"], decision = "allow")
+prefix_rule(pattern = ["bash", "./scripts/check-env.sh"], decision = "allow")
+prefix_rule(pattern = ["bash", "scripts/check-env.sh", "--require-aws"], decision = "allow")
+prefix_rule(pattern = ["bash", "./scripts/check-env.sh", "--require-aws"], decision = "allow")
+
+# Git
+prefix_rule(pattern = ["git", "add"], decision = "allow")
+prefix_rule(pattern = ["git", "commit", "-m"], decision = "allow")
+
+# Docker diagnóstico
+prefix_rule(pattern = ["docker", "ps"], decision = "allow")
+prefix_rule(pattern = ["docker", "images"], decision = "allow")
+prefix_rule(pattern = ["docker", "volume", "ls"], decision = "allow")
+prefix_rule(pattern = ["docker", "network", "ls"], decision = "allow")
+
+# Docker Compose diagnóstico
+prefix_rule(pattern = ["docker", "compose", "ps"], decision = "allow")
+prefix_rule(pattern = ["docker", "compose", "logs"], decision = "allow")
+prefix_rule(pattern = ["docker", "compose", "config"], decision = "allow")
+
+# Docker Compose execução controlada
+prefix_rule(pattern = ["docker", "compose", "up", "-d"], decision = "allow")
+prefix_rule(pattern = ["docker", "compose", "down"], decision = "ask")
+
+# AWS validação
+prefix_rule(pattern = ["aws", "sts", "get-caller-identity"], decision = "allow")
+
+# AWS leitura comum
+prefix_rule(pattern = ["aws", "ecr", "describe-repositories"], decision = "allow")
+prefix_rule(pattern = ["aws", "ecr", "describe-images"], decision = "allow")
+prefix_rule(pattern = ["aws", "s3", "ls"], decision = "allow")
+prefix_rule(pattern = ["aws", "eks", "describe-cluster"], decision = "allow")
+prefix_rule(pattern = ["aws", "eks", "list-clusters"], decision = "allow")

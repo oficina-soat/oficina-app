@@ -5,3 +5,5 @@ resources:
   - ../../base/oficina-app
   - ../../components/mailhog
   - app-config.yaml
+patches:
+  - path: service-nodeport.yaml
