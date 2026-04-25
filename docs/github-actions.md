@@ -57,7 +57,7 @@ O secret Kubernetes `oficina-jwt-keys` é derivado do AWS Secrets Manager por pa
 
 Esse fluxo remove a necessidade de cadastrar chaves JWT como GitHub Secrets neste repositório. Para o `oficina-auth-lambda` emitir tokens compatíveis, ele também precisa usar o mesmo par de chaves do Secrets Manager, ou o secret `oficina/lab/jwt` precisa ser criado manualmente com o par atualmente usado pelo lambda antes do primeiro deploy deste app.
 
-Quando a autenticação estiver publicada no API Gateway, configure `OFICINA_AUTH_ISSUER` com a URL pública do gateway. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Para manter o modo legado com chave pública montada em `/jwt/publicKey.pem`, configure os dois valores explicitamente: `OFICINA_AUTH_ISSUER=oficina-api` e `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`.
+Quando a autenticação estiver publicada no API Gateway, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` por `API_GATEWAY_ID`, depois por `API_GATEWAY_NAME` e, no padrão do laboratório, por `<EKS_CLUSTER_NAME>-http-api`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Para manter o modo legado com chave pública montada em `/jwt/publicKey.pem`, configure os dois valores explicitamente: `OFICINA_AUTH_ISSUER=oficina-api` e `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`.
 
 Rotação de JWT é uma operação explícita. Configure `ROTATE_JWT_SECRET=true` somente quando quiser gerar um novo par de chaves no Secrets Manager; tokens assinados com a chave anterior deixam de validar depois que a aplicação e o emissor passarem a usar a nova chave.
 
@@ -113,7 +113,9 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `ROTATE_JWT_SECRET`: default `false`; quando `true`, gera e grava um novo par no AWS Secrets Manager
 - `REGENERATE_JWT`: default `false`; usado apenas com `JWT_SECRET_SOURCE=local-files`
 - `JWT_DIR`: default `.tmp/jwt`; usado apenas com `JWT_SECRET_SOURCE=local-files`
-- `OFICINA_AUTH_ISSUER`: issuer esperado nos access tokens; obrigatório no deploy do lab
+- `API_GATEWAY_ID`: opcional; ID do HTTP API usado para descobrir `OFICINA_AUTH_ISSUER`
+- `API_GATEWAY_NAME`: opcional; default `<EKS_CLUSTER_NAME>-http-api`; usado quando `API_GATEWAY_ID` nao for informado
+- `OFICINA_AUTH_ISSUER`: issuer esperado nos access tokens; quando vazio, o deploy tenta descobrir pelo API Gateway
 - `OFICINA_AUTH_JWKS_URI`: JWKS ou chave pública usada para validar access tokens; quando vazio e `OFICINA_AUTH_ISSUER` for HTTP(S), o deploy usa `<issuer>/.well-known/jwks.json`
 
 ## Redeploy manual

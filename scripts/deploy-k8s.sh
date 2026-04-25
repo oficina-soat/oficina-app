@@ -23,6 +23,8 @@ JWT_DIR="${JWT_DIR:-.tmp/jwt}"
 REGENERATE_JWT="${REGENERATE_JWT:-false}"
 OFICINA_AUTH_ISSUER="${OFICINA_AUTH_ISSUER:-}"
 OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_JWKS_URI:-}"
+API_GATEWAY_ID="${API_GATEWAY_ID:-}"
+API_GATEWAY_NAME="${API_GATEWAY_NAME:-${EKS_CLUSTER_NAME:+${EKS_CLUSTER_NAME}-http-api}}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
@@ -64,9 +66,42 @@ derive_issuer_from_jwks() {
   fi
 }
 
+resolve_api_gateway_id() {
+  if [[ -n "${API_GATEWAY_ID}" ]]; then
+    printf '%s' "${API_GATEWAY_ID}"
+    return
+  fi
+
+  if [[ -z "${API_GATEWAY_NAME}" ]] || ! command -v aws >/dev/null 2>&1; then
+    return
+  fi
+
+  aws --region "${AWS_REGION}" apigatewayv2 get-apis \
+    --query "Items[?Name=='${API_GATEWAY_NAME}'].ApiId | [0]" \
+    --output text 2>/dev/null | sed '/^None$/d'
+}
+
+api_gateway_endpoint() {
+  local api_id="$1"
+
+  aws --region "${AWS_REGION}" apigatewayv2 get-api \
+    --api-id "${api_id}" \
+    --query 'ApiEndpoint' \
+    --output text 2>/dev/null | sed '/^None$/d'
+}
+
 prepare_auth_config() {
+  local api_id=""
+
   OFICINA_AUTH_ISSUER="$(normalize_url_like_value "${OFICINA_AUTH_ISSUER}")"
   OFICINA_AUTH_JWKS_URI="$(normalize_url_like_value "${OFICINA_AUTH_JWKS_URI}")"
+
+  if [[ -z "${OFICINA_AUTH_ISSUER}" ]]; then
+    api_id="$(resolve_api_gateway_id || true)"
+    if [[ -n "${api_id}" ]]; then
+      OFICINA_AUTH_ISSUER="$(normalize_url_like_value "$(api_gateway_endpoint "${api_id}")")"
+    fi
+  fi
 
   if [[ -z "${OFICINA_AUTH_ISSUER}" && -n "${OFICINA_AUTH_JWKS_URI}" ]]; then
     OFICINA_AUTH_ISSUER="$(derive_issuer_from_jwks "${OFICINA_AUTH_JWKS_URI}")"
@@ -87,6 +122,10 @@ Opcionalmente:
   OFICINA_AUTH_JWKS_URI=<issuer-publico>/.well-known/jwks.json
 
 Quando OFICINA_AUTH_JWKS_URI estiver vazio e o issuer for HTTP(S), o script deriva o JWKS automaticamente.
+Quando OFICINA_AUTH_ISSUER estiver vazio, o script tenta descobrir o endpoint do HTTP API por:
+  1. API_GATEWAY_ID
+  2. API_GATEWAY_NAME
+  3. <EKS_CLUSTER_NAME>-http-api
 Para usar o modo legado com chave montada, configure explicitamente:
   OFICINA_AUTH_ISSUER=oficina-api
   OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem

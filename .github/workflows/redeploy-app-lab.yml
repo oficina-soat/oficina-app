@@ -113,6 +113,8 @@ jobs:
       ROTATE_JWT_SECRET: ${{ vars.ROTATE_JWT_SECRET || 'false' }}
       REGENERATE_JWT: ${{ vars.REGENERATE_JWT || 'false' }}
       JWT_DIR: ${{ vars.JWT_DIR || '.tmp/jwt' }}
+      API_GATEWAY_ID: ${{ vars.API_GATEWAY_ID || '' }}
+      API_GATEWAY_NAME: ${{ vars.API_GATEWAY_NAME || '' }}
       OFICINA_AUTH_ISSUER: ${{ vars.OFICINA_AUTH_ISSUER || '' }}
       OFICINA_AUTH_JWKS_URI: ${{ vars.OFICINA_AUTH_JWKS_URI || '' }}
     steps:
