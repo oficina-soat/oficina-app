@@ -374,8 +374,8 @@ jobs:
       ROTATE_JWT_SECRET: ${{ vars.ROTATE_JWT_SECRET || 'false' }}
       REGENERATE_JWT: ${{ vars.REGENERATE_JWT || 'false' }}
       JWT_DIR: ${{ vars.JWT_DIR || '.tmp/jwt' }}
-      OFICINA_AUTH_ISSUER: ${{ vars.OFICINA_AUTH_ISSUER || 'oficina-api' }}
-      OFICINA_AUTH_JWKS_URI: ${{ vars.OFICINA_AUTH_JWKS_URI || 'file:/jwt/publicKey.pem' }}
+      OFICINA_AUTH_ISSUER: ${{ vars.OFICINA_AUTH_ISSUER || '' }}
+      OFICINA_AUTH_JWKS_URI: ${{ vars.OFICINA_AUTH_JWKS_URI || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
