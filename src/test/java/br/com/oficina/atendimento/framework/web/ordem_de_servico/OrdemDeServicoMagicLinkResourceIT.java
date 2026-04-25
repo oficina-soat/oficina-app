@@ -1,6 +1,7 @@
 package br.com.oficina.atendimento.framework.web.ordem_de_servico;
 
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.TipoDeEstadoDaOrdemDeServico;
+import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.EstadoDaOrdemDeServicoEntity;
 import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OrdemDeServicoEntity;
 import br.com.oficina.atendimento.framework.security.ActionTokenAction;
 import br.com.oficina.atendimento.framework.security.ActionTokenService;
@@ -137,7 +138,12 @@ class OrdemDeServicoMagicLinkResourceIT {
         ordemDeServicoEntity.veiculoId = 1L;
         ordemDeServicoEntity.criadoEm = Instant.now();
         ordemDeServicoEntity.atualizadoEm = ordemDeServicoEntity.criadoEm;
-        ordemDeServicoEntity.estadoAtual = estado;
+        ordemDeServicoEntity.definirEstadoAtual(estado);
+        var estadoEntity = new EstadoDaOrdemDeServicoEntity();
+        estadoEntity.ordemDeServico = ordemDeServicoEntity;
+        estadoEntity.estado = estado;
+        estadoEntity.dataEstado = ordemDeServicoEntity.criadoEm;
+        ordemDeServicoEntity.historicoDeEstados.add(estadoEntity);
         return ordemDeServicoEntity.persistir().replaceWithVoid();
     }
 

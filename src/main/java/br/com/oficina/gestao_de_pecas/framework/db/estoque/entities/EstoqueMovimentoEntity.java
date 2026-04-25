@@ -23,7 +23,7 @@ public class EstoqueMovimentoEntity extends PanacheEntity {
     @Column(name = "peca_id", nullable = false)
     public long pecaId;
 
-    @Column(name = "ordem_servico_id")
+    @Column(name = "ordem_de_servico_id")
     public UUID ordemServicoId;
 
     @NotNull

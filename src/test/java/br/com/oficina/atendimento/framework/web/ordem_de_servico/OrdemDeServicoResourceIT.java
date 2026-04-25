@@ -154,7 +154,7 @@ class OrdemDeServicoResourceIT {
                         .call(ordemDeServicoEntity -> Mutiny.fetch(ordemDeServicoEntity.servicos))
                         .invoke(ordemDeServicoEntity -> {
                             Assertions.assertEquals(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO, ordemDeServicoEntity.estadoAtual);
-                            Assertions.assertEquals(0, ordemDeServicoEntity.historicoDeEstados.size());
+                            Assertions.assertEquals(1, ordemDeServicoEntity.historicoDeEstados.size());
                             Assertions.assertEquals(1, ordemDeServicoEntity.pecas.size());
                             Assertions.assertEquals(1, ordemDeServicoEntity.servicos.size());
                         }));
@@ -178,7 +178,7 @@ class OrdemDeServicoResourceIT {
                         .call(ordemDeServicoEntity -> Mutiny.fetch(ordemDeServicoEntity.servicos))
                         .invoke(ordemDeServicoEntity -> {
                             Assertions.assertEquals(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO, ordemDeServicoEntity.estadoAtual);
-                            Assertions.assertEquals(0, ordemDeServicoEntity.historicoDeEstados.size());
+                            Assertions.assertEquals(1, ordemDeServicoEntity.historicoDeEstados.size());
                             Assertions.assertEquals(2, ordemDeServicoEntity.pecas.size());
                             Assertions.assertEquals(2, ordemDeServicoEntity.servicos.size());
                         }));

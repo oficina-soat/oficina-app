@@ -7,18 +7,20 @@ import io.smallrye.mutiny.Uni;
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
 import jakarta.persistence.LockModeType;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.PrePersist;
+import jakarta.persistence.PostLoad;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.Formula;
 import org.hibernate.reactive.mutiny.Mutiny;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -44,8 +46,19 @@ public class OrdemDeServicoEntity extends PanacheEntityBase {
     @Column(name = "criado_em", nullable = false, updatable = false)
     public Instant criadoEm;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "estado_atual", nullable = false, length = 30)
+    @Formula("""
+            (
+                select eos.tipo_estado
+                from estado_ordem_servico eos
+                where eos.ordem_de_servico_id = id
+                order by eos.data_estado desc, eos.id desc
+                limit 1
+            )
+            """)
+    String estadoAtualCodigo;
+
+    @Transient
+    @NotNull
     public TipoDeEstadoDaOrdemDeServico estadoAtual;
 
     @Column(name = "atualizado_em", nullable = false)
@@ -90,10 +103,45 @@ public class OrdemDeServicoEntity extends PanacheEntityBase {
         return find(pesquisa, params);
     }
 
+    @PostLoad
+    void postLoad() {
+        atualizarEstadoAtualDerivado();
+    }
+
+    public TipoDeEstadoDaOrdemDeServico estadoAtualResolvido() {
+        if (estadoAtual != null) {
+            return estadoAtual;
+        }
+
+        if (estadoAtualCodigo != null) {
+            return TipoDeEstadoDaOrdemDeServico.valueOf(estadoAtualCodigo);
+        }
+
+        return historicoDeEstados.stream()
+                .max(Comparator
+                        .comparing((EstadoDaOrdemDeServicoEntity estado) -> estado.dataEstado)
+                        .thenComparing(estado -> estado.id))
+                .map(estado -> estado.estado)
+                .orElse(null);
+    }
+
+    public void definirEstadoAtual(TipoDeEstadoDaOrdemDeServico estadoAtual) {
+        this.estadoAtual = estadoAtual;
+        this.estadoAtualCodigo = estadoAtual == null ? null : estadoAtual.name();
+    }
+
     @PrePersist
     void prePersist() {
         if (id == null) id = UUID.randomUUID();
         var now = Instant.now();
         if (criadoEm == null) criadoEm = now;
+    }
+
+    private void atualizarEstadoAtualDerivado() {
+        if (estadoAtualCodigo == null) {
+            estadoAtual = null;
+            return;
+        }
+        estadoAtual = TipoDeEstadoDaOrdemDeServico.valueOf(estadoAtualCodigo);
     }
 }

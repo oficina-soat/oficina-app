@@ -12,6 +12,7 @@ import jakarta.persistence.Table;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Digits;
 import jakarta.validation.constraints.NotNull;
+import org.hibernate.annotations.Formula;
 
 import java.math.BigDecimal;
 
@@ -30,8 +31,7 @@ public class OsItemServicoEntity extends PanacheEntity {
     @Column(name = "servico_id", nullable = false)
     public long servicoId;
 
-    @NotNull
-    @Column(name = "servico_nome", nullable = false)
+    @Formula("(select s.nome from servico s where s.id = servico_id)")
     public String servicoNome;
 
     @NotNull

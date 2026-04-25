@@ -24,30 +24,30 @@ final class OrdemDeServicoPrioridade {
 
     static Map<String, Object> parametrosHql() {
         return Map.of(
-                "estadoExecucao", TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO,
-                "estadoAguardandoAprovacao", TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO,
-                "estadoDiagnostico", TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO,
-                "estadoRecebida", TipoDeEstadoDaOrdemDeServico.RECEBIDA
+                "estadoExecucao", TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO.name(),
+                "estadoAguardandoAprovacao", TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO.name(),
+                "estadoDiagnostico", TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO.name(),
+                "estadoRecebida", TipoDeEstadoDaOrdemDeServico.RECEBIDA.name()
         );
     }
 
     static String filtroApenasAbertas() {
-        return " and os.estadoAtual not in (:estadoFinalizada, :estadoEntregue) ";
+        return " and os.estadoAtualCodigo not in (:estadoFinalizada, :estadoEntregue) ";
     }
 
     static Map<String, Object> parametrosFiltroApenasAbertas() {
         return Map.of(
-                "estadoFinalizada", TipoDeEstadoDaOrdemDeServico.FINALIZADA,
-                "estadoEntregue", TipoDeEstadoDaOrdemDeServico.ENTREGUE
+                "estadoFinalizada", TipoDeEstadoDaOrdemDeServico.FINALIZADA.name(),
+                "estadoEntregue", TipoDeEstadoDaOrdemDeServico.ENTREGUE.name()
         );
     }
 
     static String orderByCase() {
         return " order by case " +
-                "when os.estadoAtual = :estadoExecucao then 0 " +
-                "when os.estadoAtual = :estadoAguardandoAprovacao then 1 " +
-                "when os.estadoAtual = :estadoDiagnostico then 2 " +
-                "when os.estadoAtual = :estadoRecebida then 3 " +
+                "when os.estadoAtualCodigo = :estadoExecucao then 0 " +
+                "when os.estadoAtualCodigo = :estadoAguardandoAprovacao then 1 " +
+                "when os.estadoAtualCodigo = :estadoDiagnostico then 2 " +
+                "when os.estadoAtualCodigo = :estadoRecebida then 3 " +
                 "else " + PRIORIDADE_PADRAO + " end, " + "os" + ".criadoEm asc, " + "os" + ".id asc";
     }
 }

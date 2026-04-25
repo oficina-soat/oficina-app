@@ -24,14 +24,14 @@ class OrdemDeServicoPrioridadeTest {
         var filtroAbertas = OrdemDeServicoPrioridade.filtroApenasAbertas();
         var parametrosAbertas = OrdemDeServicoPrioridade.parametrosFiltroApenasAbertas();
 
-        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO, parametros.get("estadoExecucao"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO, parametros.get("estadoAguardandoAprovacao"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO, parametros.get("estadoDiagnostico"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA, parametros.get("estadoRecebida"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.FINALIZADA, parametrosAbertas.get("estadoFinalizada"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.ENTREGUE, parametrosAbertas.get("estadoEntregue"));
-        assertTrue(orderBy.contains("when os.estadoAtual = :estadoExecucao then 0"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO.name(), parametros.get("estadoExecucao"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO.name(), parametros.get("estadoAguardandoAprovacao"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO.name(), parametros.get("estadoDiagnostico"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA.name(), parametros.get("estadoRecebida"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.FINALIZADA.name(), parametrosAbertas.get("estadoFinalizada"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.ENTREGUE.name(), parametrosAbertas.get("estadoEntregue"));
+        assertTrue(orderBy.contains("when os.estadoAtualCodigo = :estadoExecucao then 0"));
         assertTrue(orderBy.contains("else 99 end"));
-        assertTrue(filtroAbertas.contains("os.estadoAtual not in (:estadoFinalizada, :estadoEntregue)"));
+        assertTrue(filtroAbertas.contains("os.estadoAtualCodigo not in (:estadoFinalizada, :estadoEntregue)"));
     }
 }
