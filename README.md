@@ -52,7 +52,7 @@ A aplicação depende de contratos e ambientes providos por outros repositórios
 - `src/main/resources/application.properties`: configuração Quarkus por perfil
 - `scripts/build-image.sh`: build local/CI da imagem Docker
 - `scripts/push-image.sh`: login no ECR e publicação da imagem
-- `scripts/deploy-k8s.sh`: rollout da imagem no Deployment existente
+- `scripts/deploy-k8s.sh`: reaplicacao do overlay `lab` e rollout da imagem no EKS
 - `scripts/resolve-image-ref.sh`: resolução da URL/tag da imagem no ECR
 - `k8s/overlays/lab`: manifests mínimos da aplicação alinhados ao overlay `lab` do repo `oficina-infra-k8s`
 - `.github/workflows/ci.yml`: CI/CD principal
@@ -165,7 +165,7 @@ O deploy assume que a infraestrutura base já foi criada pelos repositórios irm
 - `../oficina-infra-k8s`: ECR, EKS e API Gateway quando aplicável
 - `../oficina-infra-db`: RDS PostgreSQL, migrations, seed e secret `oficina-database-env`
 
-Quando o Deployment `oficina-app` ainda não existe, `scripts/deploy-k8s.sh` valida o secret de banco, cria/atualiza o secret `oficina-jwt-keys` e aplica automaticamente os manifests iniciais da aplicação.
+Em todos os deploys, `scripts/deploy-k8s.sh` valida o secret de banco, cria/atualiza o secret `oficina-jwt-keys` e reaplica os manifests do overlay `k8s/overlays/lab` antes do rollout. Quando o Deployment `oficina-app` ainda não existe, o mesmo fluxo faz o bootstrap inicial da aplicação.
 
 Por padrão, o deploy exige o secret `oficina-database-env`, criado pelo `../oficina-infra-db`, porque a aplicação precisa das variáveis `QUARKUS_DATASOURCE_USERNAME`, `QUARKUS_DATASOURCE_PASSWORD` e `QUARKUS_DATASOURCE_REACTIVE_URL` para iniciar no perfil de produção. Para permitir deploy sem banco, configure `REQUIRE_K8S_DB_SECRET=false`.
 

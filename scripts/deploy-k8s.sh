@@ -378,18 +378,22 @@ ensure_jwt_secret() {
 prepare_auth_config
 
 bootstrap_k8s_app() {
+  ensure_db_secret
+  ensure_jwt_secret
+
+  apply_k8s_app_manifests
+}
+
+apply_k8s_app_manifests() {
   require_cmd sed
   require_non_empty "${K8S_APP_OVERLAY}" "K8S_APP_OVERLAY"
 
   if [[ "${K8S_NAMESPACE}" != "default" ]]; then
-    echo "Bootstrap automatico suporta somente K8S_NAMESPACE=default porque o overlay lab segue o padrao dos repos de infra." >&2
+    echo "A aplicacao do overlay automatico suporta somente K8S_NAMESPACE=default porque o overlay lab segue o padrao dos repos de infra." >&2
     exit 1
   fi
 
-  ensure_db_secret
-  ensure_jwt_secret
-
-  log "Aplicando manifests iniciais da aplicacao"
+  log "Aplicando manifests da aplicacao"
   render_overlay | kubectl apply -f -
 }
 
@@ -416,10 +420,7 @@ else
   ensure_db_secret
   ensure_jwt_secret
   current_image="$(current_deployment_image)"
-  kubectl set image \
-    "deployment/${K8S_DEPLOYMENT_NAME}" \
-    "${K8S_CONTAINER_NAME}=${IMAGE_REF}" \
-    --namespace "${K8S_NAMESPACE}"
+  apply_k8s_app_manifests
 
   if [[ "${current_image}" == "${IMAGE_REF}" ]]; then
     log "Imagem ja estava em ${IMAGE_REF}; reiniciando rollout para recarregar secrets/configs"

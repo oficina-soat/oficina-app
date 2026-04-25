@@ -44,7 +44,7 @@ Ele espera que:
 - `../oficina-infra-k8s` tenha criado ou reutilizado o ECR e o cluster EKS
 - `../oficina-infra-db` tenha criado o RDS PostgreSQL e o secret Kubernetes `oficina-database-env`
 
-No primeiro deploy, se o Deployment `oficina-app` ainda não existir, `scripts/deploy-k8s.sh` aplica os manifests mínimos em `k8s/overlays/lab`, alinhados ao padrão do repo `oficina-infra-k8s`. Esse bootstrap cria/atualiza:
+Em todos os deploys, `scripts/deploy-k8s.sh` reaplica os manifests mínimos em `k8s/overlays/lab`, alinhados ao padrão do repo `oficina-infra-k8s`. Quando o Deployment `oficina-app` ainda não existir, o mesmo fluxo faz o bootstrap inicial e cria/atualiza:
 
 - Deployment e Service `oficina-app`
 - ConfigMap `oficina-app-config`
