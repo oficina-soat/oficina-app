@@ -92,7 +92,14 @@ Comandos relevantes:
 
 ## Commits
 
-Quando houver commit, use mensagens em português seguindo Conventional Commits.
+Sempre que houver alterações no repositório como resultado da tarefa, crie um commit ao final do trabalho.
+
+Antes de criar o commit:
+
+- adicione ao Git todos os arquivos novos criados no escopo da tarefa
+- faça stage dos arquivos alterados que pertencem à tarefa
+
+Ao criar o commit, use mensagens em português seguindo Conventional Commits.
 
 Exemplos válidos:
 
