@@ -21,8 +21,8 @@ JWT_SECRET_PUBLIC_KEY_FIELD="${JWT_SECRET_PUBLIC_KEY_FIELD:-publicKeyPem}"
 ROTATE_JWT_SECRET="${ROTATE_JWT_SECRET:-false}"
 JWT_DIR="${JWT_DIR:-.tmp/jwt}"
 REGENERATE_JWT="${REGENERATE_JWT:-false}"
-OFICINA_AUTH_ISSUER="${OFICINA_AUTH_ISSUER:-oficina-api}"
-OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_JWKS_URI:-file:/jwt/publicKey.pem}"
+OFICINA_AUTH_ISSUER="${OFICINA_AUTH_ISSUER:-}"
+OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_JWKS_URI:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
@@ -40,6 +40,57 @@ require_non_empty() {
 
   if [[ -z "${value}" ]]; then
     echo "Variavel obrigatoria ausente: ${name}" >&2
+    exit 1
+  fi
+}
+
+normalize_url_like_value() {
+  local value="$1"
+
+  if [[ "${value}" == http://* || "${value}" == https://* ]]; then
+    printf '%s' "${value%/}"
+    return
+  fi
+
+  printf '%s' "${value}"
+}
+
+derive_issuer_from_jwks() {
+  local jwks_uri="$1"
+  local suffix="/.well-known/jwks.json"
+
+  if [[ "${jwks_uri}" == http://*"${suffix}" || "${jwks_uri}" == https://*"${suffix}" ]]; then
+    printf '%s' "${jwks_uri%"${suffix}"}"
+  fi
+}
+
+prepare_auth_config() {
+  OFICINA_AUTH_ISSUER="$(normalize_url_like_value "${OFICINA_AUTH_ISSUER}")"
+  OFICINA_AUTH_JWKS_URI="$(normalize_url_like_value "${OFICINA_AUTH_JWKS_URI}")"
+
+  if [[ -z "${OFICINA_AUTH_ISSUER}" && -n "${OFICINA_AUTH_JWKS_URI}" ]]; then
+    OFICINA_AUTH_ISSUER="$(derive_issuer_from_jwks "${OFICINA_AUTH_JWKS_URI}")"
+  fi
+
+  if [[ -z "${OFICINA_AUTH_JWKS_URI}" && ( "${OFICINA_AUTH_ISSUER}" == http://* || "${OFICINA_AUTH_ISSUER}" == https://* ) ]]; then
+    OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_ISSUER}/.well-known/jwks.json"
+  fi
+
+  if [[ -z "${OFICINA_AUTH_ISSUER}" || -z "${OFICINA_AUTH_JWKS_URI}" ]]; then
+    cat >&2 <<EOF
+Configuracao JWT incompleta para o deploy da aplicacao.
+
+Informe:
+  OFICINA_AUTH_ISSUER=<issuer-publico>
+
+Opcionalmente:
+  OFICINA_AUTH_JWKS_URI=<issuer-publico>/.well-known/jwks.json
+
+Quando OFICINA_AUTH_JWKS_URI estiver vazio e o issuer for HTTP(S), o script deriva o JWKS automaticamente.
+Para usar o modo legado com chave montada, configure explicitamente:
+  OFICINA_AUTH_ISSUER=oficina-api
+  OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem
+EOF
     exit 1
   fi
 }
@@ -284,6 +335,8 @@ ensure_jwt_secret() {
       ;;
   esac
 }
+
+prepare_auth_config
 
 bootstrap_k8s_app() {
   require_cmd sed
