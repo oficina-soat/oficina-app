@@ -68,7 +68,7 @@ Componentes principais:
 - `atendimento`: clientes, veículos, ordens de serviço, acompanhamento e magic link
 - `gestao_de_pecas`: catálogo de peças e serviços, além do controle de estoque
 - `common`: contratos compartilhados e componentes web reutilizados
-- integrações de plataforma: PostgreSQL reativo, JWT, e-mail e métricas
+- integrações de plataforma: PostgreSQL reativo, JWT, notificação serverless e métricas
 
 ```mermaid
 flowchart LR
@@ -82,7 +82,7 @@ flowchart LR
 
     ATD --> DB[(PostgreSQL)]
     GEST --> DB
-    ATD --> SMTP[MailHog ou SMTP]
+    ATD --> NOTIF[Lambda de Notificação]
     API --> JWT[JWT / Autenticação]
     API --> METRICS[Métricas Prometheus]
 ```
@@ -108,7 +108,7 @@ Gere um par local não versionado para JWT:
 ./mvnw quarkus:dev
 ```
 
-No perfil `dev`, o projeto usa Dev Services para o banco e mailer mockado.
+No perfil `dev`, o projeto usa Dev Services para o banco. Para acionar notificações localmente, suba também a lambda `../oficina-auth-lambda` ou defina `OFICINA_NOTIFICACAO_BASE_URL`.
 
 ### Opção 2: stack local completa com Docker Compose
 
@@ -121,7 +121,6 @@ Esse fluxo sobe:
 - aplicação em `http://localhost:8080`
 - Swagger em `http://localhost:8080/q/swagger-ui/`
 - PostgreSQL em `localhost:5432`
-- MailHog em `http://localhost:8025`
 
 ## Testes
 
@@ -169,7 +168,7 @@ Em todos os deploys, `scripts/deploy-k8s.sh` valida o secret de banco, cria/atua
 
 Por padrão, o deploy exige o secret `oficina-database-env`, criado pelo `../oficina-infra-db`, porque a aplicação precisa das variáveis `QUARKUS_DATASOURCE_USERNAME`, `QUARKUS_DATASOURCE_PASSWORD` e `QUARKUS_DATASOURCE_REACTIVE_URL` para iniciar no perfil de produção. Para permitir deploy sem banco, configure `REQUIRE_K8S_DB_SECRET=false`.
 
-As chaves JWT não precisam ser cadastradas como GitHub Secrets neste repositório. Por padrão, o deploy usa o AWS Secrets Manager como origem (`JWT_SECRET_NAME=oficina/lab/jwt`) e cria o par RSA se ele ainda não existir. O secret Kubernetes `oficina-jwt-keys` é atualizado a partir desse valor em cada deploy. Para manter compatibilidade com tokens emitidos pelo `oficina-auth-lambda`, o lambda deve usar o mesmo secret do Secrets Manager, ou esse secret deve ser criado previamente com o par de chaves já usado pelo lambda. No ambiente `lab`, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` pelo HTTP API padrão `<EKS_CLUSTER_NAME>-http-api`, ou pelos overrides `API_GATEWAY_ID` e `API_GATEWAY_NAME`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Para manter o modo legado com chave montada, informe os dois valores explicitamente: `OFICINA_AUTH_ISSUER=oficina-api` e `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`.
+As chaves JWT não precisam ser cadastradas como GitHub Secrets neste repositório. Por padrão, o deploy usa o AWS Secrets Manager como origem (`JWT_SECRET_NAME=oficina/lab/jwt`) e cria o par RSA se ele ainda não existir. O secret Kubernetes `oficina-jwt-keys` é atualizado a partir desse valor em cada deploy. Para manter compatibilidade com tokens emitidos pelo `oficina-auth-lambda`, o lambda deve usar o mesmo secret do Secrets Manager, ou esse secret deve ser criado previamente com o par de chaves já usado pelo lambda. No ambiente `lab`, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` pelo HTTP API padrão `<EKS_CLUSTER_NAME>-http-api`, ou pelos overrides `API_GATEWAY_ID` e `API_GATEWAY_NAME`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. A integração de notificação usa o mesmo host por padrão e pode ser sobrescrita com `OFICINA_NOTIFICACAO_BASE_URL`. Para manter o modo legado com chave montada, informe os dois valores explicitamente: `OFICINA_AUTH_ISSUER=oficina-api` e `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`.
 
 Detalhes de variáveis, secrets e workflows auxiliares: [docs/github-actions.md](docs/github-actions.md).
 

@@ -2,29 +2,32 @@ package br.com.oficina.atendimento.framework.dispatcher;
 
 import br.com.oficina.atendimento.core.interfaces.sender.EstadoDaOrdemDeServicoSender;
 import br.com.oficina.atendimento.framework.db.cliente.ClienteEntity;
-import br.com.oficina.atendimento.framework.service.EmailService;
+import br.com.oficina.atendimento.framework.service.NotificacaoService;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.concurrent.CompletableFuture;
 
 @ApplicationScoped
-public class EstadoDaOrdemDeServicoSenderEmailAdapter implements EstadoDaOrdemDeServicoSender {
+public class EstadoDaOrdemDeServicoSenderNotificacaoAdapter implements EstadoDaOrdemDeServicoSender {
 
-    private final EmailService emailService;
+    private final NotificacaoService notificacaoService;
 
-    public EstadoDaOrdemDeServicoSenderEmailAdapter(EmailService emailService) {
-        this.emailService = emailService;
+    public EstadoDaOrdemDeServicoSenderNotificacaoAdapter(NotificacaoService notificacaoService) {
+        this.notificacaoService = notificacaoService;
     }
 
     @Override
     public CompletableFuture<Void> enviar(Mensagem mensagem) {
         return ClienteEntity.buscaPorId(mensagem.clienteId())
-                .onItem().ifNull().failWith(() -> new IllegalStateException("Cliente não encontrado para envio de e-mail"))
-                .flatMap(cliente -> emailService.enviar(
-                        montarMensagem(mensagem),
-                        montarAssunto(mensagem),
-                        cliente.email))
-                .subscribeAsCompletionStage();
+                .onItem().ifNull().failWith(() -> new IllegalStateException("Cliente não encontrado para envio de notificação"))
+                .flatMap(cliente -> io.smallrye.mutiny.Uni.createFrom().completionStage(
+                        notificacaoService.enviar(
+                                montarMensagem(mensagem),
+                                montarAssunto(mensagem),
+                                cliente.email)))
+                .replaceWithVoid()
+                .subscribeAsCompletionStage()
+                .toCompletableFuture();
     }
 
     String montarAssunto(Mensagem mensagem) {

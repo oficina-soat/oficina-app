@@ -2,7 +2,7 @@ package br.com.oficina.atendimento.framework.dispatcher;
 
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.TipoDeEstadoDaOrdemDeServico;
 import br.com.oficina.atendimento.core.interfaces.sender.EstadoDaOrdemDeServicoSender;
-import br.com.oficina.atendimento.framework.service.EmailService;
+import br.com.oficina.atendimento.framework.service.NotificacaoService;
 import org.junit.jupiter.api.Test;
 
 import java.util.UUID;
@@ -10,11 +10,11 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.Mockito.mock;
 
-class EstadoDaOrdemDeServicoSenderEmailAdapterTest {
+class EstadoDaOrdemDeServicoSenderNotificacaoAdapterTest {
 
     @Test
     void deveMontarAssuntoEMensagemComDadosDaTransicao() {
-        var adapter = new EstadoDaOrdemDeServicoSenderEmailAdapter(mock(EmailService.class));
+        var adapter = new EstadoDaOrdemDeServicoSenderNotificacaoAdapter(mock(NotificacaoService.class));
         var mensagem = new EstadoDaOrdemDeServicoSender.Mensagem(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
                 10L,

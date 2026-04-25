@@ -6,7 +6,7 @@ Este documento consolida os padrões observados no `oficina-app` para servir com
 
 - O repositório implementa a aplicação principal da Oficina em Quarkus, como monólito modular.
 - Os módulos de domínio principais são `atendimento`, `gestao_de_pecas` e `common`.
-- A stack atual é Java 25, Quarkus 3.31.x, Maven Wrapper, Hibernate Reactive Panache, Reactive PostgreSQL Client, SmallRye JWT, Mailer, OpenAPI e Micrometer Prometheus.
+- A stack atual é Java 25, Quarkus 3.31.x, Maven Wrapper, Hibernate Reactive Panache, Reactive PostgreSQL Client, SmallRye JWT, REST Client, OpenAPI e Micrometer Prometheus.
 - A aplicação é publicada como imagem Docker versionada no ECR e sofre rollout no EKS do laboratório.
 
 ## Estrutura e arquitetura
@@ -27,7 +27,7 @@ Exemplos observados:
 ### Regra prática
 
 - Regra de negócio fica em `core`.
-- Quarkus, JAX-RS, Panache, SMTP, JWT, `Uni`, `@Path`, `@RolesAllowed` e detalhes de banco ficam fora de `core`.
+- Quarkus, JAX-RS, Panache, HTTP client, JWT, `Uni`, `@Path`, `@RolesAllowed` e detalhes de banco ficam fora de `core`.
 - A montagem dos objetos costuma ficar em classes de configuração CDI no `framework`.
 
 ## Montagem de dependências

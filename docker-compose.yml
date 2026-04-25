@@ -12,11 +12,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-  mailhog:
-    image: mailhog/mailhog:v1.0.1
-    ports:
-      - "1025:1025"
-      - "8025:8025"
   jwt-keys:
     image: alpine:3.20
     command: >
@@ -47,22 +42,17 @@ services:
     depends_on:
       db:
         condition: service_healthy
-      mailhog:
-        condition: service_started
       jwt-keys:
         condition: service_completed_successfully
     ports:
       - "8080:8080"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       QUARKUS_DATASOURCE_USERNAME: app
       QUARKUS_DATASOURCE_PASSWORD: app
       QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://db:5432/app
-      QUARKUS_MAILER_HOST: mailhog
-      QUARKUS_MAILER_PORT: 1025
-      QUARKUS_MAILER_TLS: "false"
-      QUARKUS_MAILER_START_TLS: DISABLED
-      QUARKUS_MAILER_MOCK: "false"
-      QUARKUS_MAILER_FROM: noreply@oficina.local
+      OFICINA_NOTIFICACAO_BASE_URL: http://host.docker.internal:9080
       JAVA_TOOL_OPTIONS: >-
         -Dquarkus.hibernate-orm.schema-management.strategy=drop-and-create
       MP_JWT_VERIFY_PUBLICKEY_LOCATION: file:/jwt/publicKey.pem

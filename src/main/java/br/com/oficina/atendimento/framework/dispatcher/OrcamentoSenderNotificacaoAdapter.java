@@ -2,7 +2,7 @@ package br.com.oficina.atendimento.framework.dispatcher;
 
 import br.com.oficina.atendimento.core.interfaces.sender.OrcamentoSender;
 import br.com.oficina.atendimento.framework.security.MagicLinkService;
-import br.com.oficina.atendimento.framework.service.EmailService;
+import br.com.oficina.atendimento.framework.service.NotificacaoService;
 import br.com.oficina.atendimento.interfaces.presenters.OrcamentoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.view_model.OrcamentoViewModel;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -10,18 +10,18 @@ import jakarta.enterprise.context.ApplicationScoped;
 import java.util.concurrent.CompletableFuture;
 
 @ApplicationScoped
-public class OrcamentoSenderEmailAdapter implements OrcamentoSender {
+public class OrcamentoSenderNotificacaoAdapter implements OrcamentoSender {
 
     private final OrcamentoPresenterAdapter orcamentoPresenterAdapter;
-    private final EmailService emailService;
+    private final NotificacaoService notificacaoService;
     private final MagicLinkService magicLinkService;
     private String emailDestino;
 
-    public OrcamentoSenderEmailAdapter(OrcamentoPresenterAdapter orcamentoPresenterAdapter,
-                                       EmailService emailService,
-                                       MagicLinkService magicLinkService) {
+    public OrcamentoSenderNotificacaoAdapter(OrcamentoPresenterAdapter orcamentoPresenterAdapter,
+                                             NotificacaoService notificacaoService,
+                                             MagicLinkService magicLinkService) {
         this.orcamentoPresenterAdapter = orcamentoPresenterAdapter;
-        this.emailService = emailService;
+        this.notificacaoService = notificacaoService;
         this.magicLinkService = magicLinkService;
     }
 
@@ -34,11 +34,10 @@ public class OrcamentoSenderEmailAdapter implements OrcamentoSender {
     public CompletableFuture<Void> enviar() {
         var viewModel = orcamentoPresenterAdapter.viewModel();
         return montarMensagem(viewModel)
-                .thenCompose(mensagem -> emailService.enviar(
-                                mensagem,
-                                montarAssunto(viewModel),
-                                emailDestino)
-                        .subscribeAsCompletionStage());
+                .thenCompose(mensagem -> notificacaoService.enviar(
+                        mensagem,
+                        montarAssunto(viewModel),
+                        emailDestino));
     }
 
     public String montarAssunto(OrcamentoViewModel orcamentoViewModel) {

@@ -9,7 +9,7 @@ Stack atual do projeto:
 - Java 25
 - Quarkus 3.31.x
 - Maven Wrapper (`./mvnw`)
-- Quarkus REST, Jackson, Hibernate Reactive Panache, Reactive PostgreSQL Client, SmallRye JWT, Mailer, OpenAPI e Micrometer Prometheus
+- Quarkus REST, Jackson, Hibernate Reactive Panache, Reactive PostgreSQL Client, SmallRye JWT, REST Client, OpenAPI e Micrometer Prometheus
 - PostgreSQL em produção e Dev Services ou Docker Compose no desenvolvimento
 
 O código principal está concentrado em `src/main/java/br/com/oficina`, com testes em `src/test/java/br/com/oficina`, manifests em `k8s/` e scripts operacionais em `scripts/`.
@@ -51,7 +51,7 @@ Quando esses repositórios estiverem disponíveis, eles devem ser consultados pa
 - Siga os padrões já presentes no código para nomes, organização de pacotes e estilo de testes.
 - Em `atendimento`, preserve a separação entre entidades, casos de uso, gateways, presenters, controllers, resources, adapters de banco e integrações como e-mail e magic link.
 - Em `gestao_de_pecas`, preserve a separação entre catálogo, estoque, casos de uso, adapters web e persistência reativa.
-- Não mova detalhes de Quarkus, HTTP, JPA/Panache, SMTP ou JWT para dentro de `core`.
+- Não mova detalhes de Quarkus, HTTP, JPA/Panache, clientes HTTP ou JWT para dentro de `core`.
 - Ao mexer em endpoints, preserve o contrato HTTP documentado no `README.md` e protegido pelos testes, salvo quando a tarefa exigir ajuste explícito de contrato.
 - Ao mexer em configuração, considere os perfis `dev`, `test` e `prod` definidos em `src/main/resources/application.properties`.
 - Ao mexer em autenticação, preserve compatibilidade com `OFICINA_AUTH_ISSUER`, `OFICINA_AUTH_AUDIENCE`, `OFICINA_AUTH_JWKS_URI`, `MP_JWT_VERIFY_PUBLICKEY_LOCATION` e com a integração esperada do `oficina-auth-lambda`.
