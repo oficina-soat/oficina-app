@@ -122,7 +122,7 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
                 ordemDeServicoEntityValidada.clienteId,
                 ordemDeServicoEntityValidada.veiculoId,
                 new EstadoDaOrdemDeServico(
-                        ordemDeServicoEntityValidada.estadoAtual,
+                        ordemDeServicoEntityValidada.estadoAtualResolvido(),
                         ordemDeServicoEntityValidada.atualizadoEm));
     }
 
@@ -133,7 +133,7 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
                 ordemDeServicoEntityValidada.clienteId,
                 ordemDeServicoEntityValidada.veiculoId,
                 new EstadoDaOrdemDeServico(
-                        ordemDeServicoEntityValidada.estadoAtual,
+                        ordemDeServicoEntityValidada.estadoAtualResolvido(),
                         ordemDeServicoEntityValidada.atualizadoEm),
                 getHistoricoDeEstados(ordemDeServicoEntityValidada),
                 getPecas(ordemDeServicoEntityValidada),
@@ -176,13 +176,13 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
 
     private static void atualizarEstado(OrdemDeServicoEntity ordemDeServicoEntity, OrdemDeServico ordemDeServico) {
         var novoEstado = ordemDeServico.estadoDaOrdemDeServico();
-        var houveMudancaDeEstado = ordemDeServicoEntity.estadoAtual != novoEstado;
+        var houveMudancaDeEstado = ordemDeServicoEntity.estadoAtualResolvido() != novoEstado;
 
         if (!houveMudancaDeEstado) {
             return;
         }
 
-        ordemDeServicoEntity.estadoAtual = novoEstado;
+        ordemDeServicoEntity.definirEstadoAtual(novoEstado);
         ordemDeServicoEntity.atualizadoEm = ordemDeServico.dataDoEstado();
         var estadoDaOrdemDeServicoEntity = new EstadoDaOrdemDeServicoEntity();
         estadoDaOrdemDeServicoEntity.ordemDeServico = ordemDeServicoEntity;
@@ -198,7 +198,6 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
                     var entity = new OsItemServicoEntity();
                     entity.ordemDeServico = ordemDeServicoEntity;
                     entity.servicoId = servico.id();
-                    entity.servicoNome = servico.nome();
                     entity.quantidade = servico.quantidade();
                     entity.valorUnitario = servico.valorUnitario();
                     entity.valorTotal = servico.valorTotal();
@@ -214,7 +213,6 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
                     var entity = new OsItemPecaEntity();
                     entity.ordemDeServico = ordemDeServicoEntity;
                     entity.pecaId = peca.id();
-                    entity.pecaNome = peca.nome();
                     entity.quantidade = peca.quantidade();
                     entity.valorUnitario = peca.valorUnitario();
                     entity.valorTotal = peca.valorTotal();

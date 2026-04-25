@@ -28,14 +28,14 @@ class ListarOrdensDetalhadasHqlBuilderTest {
                 .fromQuery(query)
                 .build();
 
-        assertTrue(consulta.hqlCount().contains("and os.estadoAtual = :estado"));
+        assertTrue(consulta.hqlCount().contains("and os.estadoAtualCodigo = :estado"));
         assertTrue(consulta.hqlCount().contains("and os.documentoDoCliente = :doc"));
         assertTrue(consulta.hqlCount().contains("and os.placaDoVeiculo = :placa"));
         assertTrue(consulta.hqlCount().contains("and os.criadoEm >= :criadoDe"));
         assertTrue(consulta.hqlCount().contains("and os.criadoEm <= :criadoAte"));
         assertTrue(consulta.hqlData().contains("left join fetch os.historicoDeEstados"));
         assertTrue(consulta.hqlData().contains("order by os.criadoEm desc"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA, consulta.countParams().get("estado"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA.name(), consulta.countParams().get("estado"));
         assertEquals("12345678900", consulta.countParams().get("doc"));
         assertEquals("ABC1234", consulta.countParams().get("placa"));
         assertEquals(consulta.countParams(), consulta.dataParams());
@@ -48,14 +48,14 @@ class ListarOrdensDetalhadasHqlBuilderTest {
                 .fromQuery(ListarOrdensDetalhadasQuery.ofAbertasComPrioridade())
                 .build();
 
-        assertTrue(consulta.hqlCount().contains("os.estadoAtual not in (:estadoFinalizada, :estadoEntregue)"));
-        assertTrue(consulta.hqlData().contains("when os.estadoAtual = :estadoExecucao then 0"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.FINALIZADA, consulta.countParams().get("estadoFinalizada"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.ENTREGUE, consulta.countParams().get("estadoEntregue"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO, consulta.dataParams().get("estadoExecucao"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO, consulta.dataParams().get("estadoAguardandoAprovacao"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO, consulta.dataParams().get("estadoDiagnostico"));
-        assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA, consulta.dataParams().get("estadoRecebida"));
+        assertTrue(consulta.hqlCount().contains("os.estadoAtualCodigo not in (:estadoFinalizada, :estadoEntregue)"));
+        assertTrue(consulta.hqlData().contains("when os.estadoAtualCodigo = :estadoExecucao then 0"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.FINALIZADA.name(), consulta.countParams().get("estadoFinalizada"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.ENTREGUE.name(), consulta.countParams().get("estadoEntregue"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO.name(), consulta.dataParams().get("estadoExecucao"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO.name(), consulta.dataParams().get("estadoAguardandoAprovacao"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO.name(), consulta.dataParams().get("estadoDiagnostico"));
+        assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA.name(), consulta.dataParams().get("estadoRecebida"));
         assertEquals(ListarOrdensDetalhadasHqlBuilder.Ordenacao.PRIORIZADA, consulta.ordenacao());
     }
 }

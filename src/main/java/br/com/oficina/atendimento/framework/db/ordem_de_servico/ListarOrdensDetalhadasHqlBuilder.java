@@ -52,8 +52,8 @@ final class ListarOrdensDetalhadasHqlBuilder {
         if (estado == null) {
             return;
         }
-        where.append(" and os.estadoAtual = :estado ");
-        countParams.put("estado", TipoDeEstadoDaOrdemDeServico.valueOf(estado));
+        where.append(" and os.estadoAtualCodigo = :estado ");
+        countParams.put("estado", TipoDeEstadoDaOrdemDeServico.valueOf(estado).name());
     }
 
     private void adicionarFiltroDeDocumento(String documentoDoCliente) {
@@ -138,7 +138,7 @@ final class ListarOrdensDetalhadasHqlBuilder {
             @Override List<OrdemDeServicoEntity> ordenar(List<OrdemDeServicoEntity> entidades) {
                 return entidades.stream()
                         .sorted(Comparator
-                                .comparingInt((OrdemDeServicoEntity os) -> OrdemDeServicoPrioridade.valor(os.estadoAtual))
+                                .comparingInt((OrdemDeServicoEntity os) -> OrdemDeServicoPrioridade.valor(os.estadoAtualResolvido()))
                                 .thenComparing(os -> os.criadoEm)
                                 .thenComparing(os -> os.id))
                         .toList();

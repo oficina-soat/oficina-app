@@ -20,7 +20,7 @@ public class EstadoDaOrdemDeServicoEntity extends PanacheEntity {
 
     @NotNull
     @Enumerated(EnumType.STRING)
-    @Column(name = "tipo_estado", length = 20, nullable = false)
+    @Column(name = "tipo_estado", length = 30, nullable = false)
     public TipoDeEstadoDaOrdemDeServico estado;
 
     @NotNull
