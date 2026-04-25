@@ -21,6 +21,10 @@ prefix_rule(pattern = ["bash", "./scripts/check-env.sh"], decision = "allow")
 prefix_rule(pattern = ["bash", "scripts/check-env.sh", "--require-aws"], decision = "allow")
 prefix_rule(pattern = ["bash", "./scripts/check-env.sh", "--require-aws"], decision = "allow")
 
+# Git
+prefix_rule(pattern = ["git", "add"], decision = "allow")
+prefix_rule(pattern = ["git", "commit", "-m"], decision = "allow")
+
 # Docker diagnóstico
 prefix_rule(pattern = ["docker", "ps"], decision = "allow")
 prefix_rule(pattern = ["docker", "images"], decision = "allow")

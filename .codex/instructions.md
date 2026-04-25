@@ -47,3 +47,14 @@ aws sts get-caller-identity
 ```
 
 Use comandos AWS de leitura quando forem necessários para validar ECR, S3, EKS ou outros recursos do projeto.
+
+## Git
+
+Ao concluir alterações no escopo da tarefa, prepare o commit explicitamente com:
+
+```bash
+git add <arquivos-da-tarefa>
+git commit -m "<tipo>: <resumo>"
+```
+
+Prefira mensagens curtas em português seguindo Conventional Commits.
