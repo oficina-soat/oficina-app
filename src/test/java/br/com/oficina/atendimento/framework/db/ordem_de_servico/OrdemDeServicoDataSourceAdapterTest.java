@@ -12,7 +12,9 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Method;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.HashSet;
+import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -108,6 +110,24 @@ class OrdemDeServicoDataSourceAdapterTest {
 
         assertEquals(new BigDecimal("10.00"), ItemPecaDTO.from(pecaEntity).valorTotal());
         assertEquals(BigDecimal.ONE, ItemServicoDTO.from(servicoEntity).valorTotal());
+    }
+
+    @Test
+    void deveReordenarEntidadesConformeIdsPaginados() throws Exception {
+        var primeiroId = UUID.randomUUID();
+        var segundoId = UUID.randomUUID();
+
+        var primeiro = new OrdemDeServicoEntity();
+        primeiro.id = primeiroId;
+
+        var segundo = new OrdemDeServicoEntity();
+        segundo.id = segundoId;
+
+        @SuppressWarnings("unchecked")
+        var entidades = (List<OrdemDeServicoEntity>) method("reordenarPorIds", List.class, List.class)
+                .invoke(null, List.of(segundo, primeiro), List.of(primeiroId, segundoId));
+
+        assertEquals(List.of(primeiro, segundo), entidades);
     }
 
     private static Method method(String name, Class<?>... types) throws Exception {
