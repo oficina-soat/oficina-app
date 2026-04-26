@@ -14,6 +14,7 @@ import br.com.oficina.atendimento.core.usecases.cliente.AdicionarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.ApagarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.AtualizarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.BuscarClienteUseCase;
+import br.com.oficina.atendimento.core.usecases.cliente.ListarClientesUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AbrirOrdemDeServicoCompletaUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AcompanharOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AprovarOrdemDeServicoUseCase;
@@ -68,7 +69,8 @@ public class AtendimentoConfiguration {
     @Produces ClienteQueryController clienteQueryController(ClienteGateway clienteGateway,
                                                             ClientePresenter clientePresenter) {
         return new ClienteQueryController(
-                new BuscarClienteUseCase(clienteGateway, clientePresenter));
+                new BuscarClienteUseCase(clienteGateway, clientePresenter),
+                new ListarClientesUseCase(clienteGateway, clientePresenter));
     }
 
     @Produces @RequestScoped ClientePresenterAdapter clientePresenter() {

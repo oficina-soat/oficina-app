@@ -9,6 +9,7 @@ import br.com.oficina.common.core.entities.TipoPessoa;
 import br.com.oficina.common.framework.db.pessoa.PessoaEntity;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -34,6 +35,14 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
     @Override public CompletableFuture<Cliente> buscarPorId(long id) {
         return ClienteEntity.buscaPorId(id)
                 .map(ClienteDataSourceAdapter::toDomain)
+                .subscribeAsCompletionStage();
+    }
+
+    @Override public CompletableFuture<List<Cliente>> listar() {
+        return ClienteEntity.listarTodos()
+                .map(clientes -> clientes.stream()
+                        .map(ClienteDataSourceAdapter::toDomain)
+                        .toList())
                 .subscribeAsCompletionStage();
     }
 
