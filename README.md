@@ -108,7 +108,7 @@ Gere um par local não versionado para JWT:
 ./mvnw quarkus:dev
 ```
 
-No perfil `dev`, o projeto usa Dev Services para o banco. Para acionar notificações localmente, suba também a lambda `../oficina-auth-lambda` ou defina `OFICINA_NOTIFICACAO_BASE_URL`.
+No perfil `dev`, o projeto usa Dev Services para o banco. Para acionar notificações localmente, suba também a `notificacao-lambda` do repositório `../oficina-auth-lambda` com `./mvnw -pl notificacao-lambda quarkus:dev`, ou defina `OFICINA_NOTIFICACAO_BASE_URL`.
 
 ### Opção 2: stack local completa com Docker Compose
 
