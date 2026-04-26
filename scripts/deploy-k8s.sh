@@ -23,6 +23,7 @@ JWT_DIR="${JWT_DIR:-.tmp/jwt}"
 REGENERATE_JWT="${REGENERATE_JWT:-false}"
 OFICINA_AUTH_ISSUER="${OFICINA_AUTH_ISSUER:-}"
 OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_JWKS_URI:-}"
+OFICINA_AUTH_FORCE_LEGACY="${OFICINA_AUTH_FORCE_LEGACY:-false}"
 API_GATEWAY_ID="${API_GATEWAY_ID:-}"
 API_GATEWAY_NAME="${API_GATEWAY_NAME:-${EKS_CLUSTER_NAME:+${EKS_CLUSTER_NAME}-http-api}}"
 
@@ -66,6 +67,12 @@ derive_issuer_from_jwks() {
   fi
 }
 
+uses_legacy_auth_config() {
+  [[ "${OFICINA_AUTH_ISSUER}" == "oficina-api" ]] && {
+    [[ -z "${OFICINA_AUTH_JWKS_URI}" || "${OFICINA_AUTH_JWKS_URI}" == "file:/jwt/publicKey.pem" ]]
+  }
+}
+
 resolve_api_gateway_id() {
   if [[ -n "${API_GATEWAY_ID}" ]]; then
     printf '%s' "${API_GATEWAY_ID}"
@@ -92,9 +99,18 @@ api_gateway_endpoint() {
 
 prepare_auth_config() {
   local api_id=""
+  local should_migrate_legacy="false"
+  local legacy_auth_issuer="${OFICINA_AUTH_ISSUER}"
+  local legacy_auth_jwks_uri="${OFICINA_AUTH_JWKS_URI}"
 
   OFICINA_AUTH_ISSUER="$(normalize_url_like_value "${OFICINA_AUTH_ISSUER}")"
   OFICINA_AUTH_JWKS_URI="$(normalize_url_like_value "${OFICINA_AUTH_JWKS_URI}")"
+
+  if [[ "${OFICINA_AUTH_FORCE_LEGACY}" != "true" ]] && uses_legacy_auth_config; then
+    should_migrate_legacy="true"
+    OFICINA_AUTH_ISSUER=""
+    OFICINA_AUTH_JWKS_URI=""
+  fi
 
   if [[ -z "${OFICINA_AUTH_ISSUER}" ]]; then
     api_id="$(resolve_api_gateway_id || true)"
@@ -109,6 +125,14 @@ prepare_auth_config() {
 
   if [[ -z "${OFICINA_AUTH_JWKS_URI}" && ( "${OFICINA_AUTH_ISSUER}" == http://* || "${OFICINA_AUTH_ISSUER}" == https://* ) ]]; then
     OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_ISSUER}/.well-known/jwks.json"
+  fi
+
+  if [[ "${should_migrate_legacy}" == "true" && -n "${OFICINA_AUTH_ISSUER}" && -n "${OFICINA_AUTH_JWKS_URI}" ]]; then
+    log "Migrando configuracao legada de JWT para o issuer publico ${OFICINA_AUTH_ISSUER}."
+  elif [[ "${should_migrate_legacy}" == "true" ]]; then
+    OFICINA_AUTH_ISSUER="${legacy_auth_issuer}"
+    OFICINA_AUTH_JWKS_URI="${legacy_auth_jwks_uri}"
+    log "API Gateway nao encontrado; mantendo configuracao legada de JWT."
   fi
 
   if [[ -z "${OFICINA_AUTH_ISSUER}" || -z "${OFICINA_AUTH_JWKS_URI}" ]]; then
@@ -126,9 +150,11 @@ Quando OFICINA_AUTH_ISSUER estiver vazio, o script tenta descobrir o endpoint do
   1. API_GATEWAY_ID
   2. API_GATEWAY_NAME
   3. <EKS_CLUSTER_NAME>-http-api
+Se encontrar a configuracao legada `oficina-api` + `file:/jwt/publicKey.pem`, o script migra automaticamente para o issuer/JWKS publicos do gateway, a menos que OFICINA_AUTH_FORCE_LEGACY=true.
 Para usar o modo legado com chave montada, configure explicitamente:
   OFICINA_AUTH_ISSUER=oficina-api
   OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem
+  OFICINA_AUTH_FORCE_LEGACY=true
 EOF
     exit 1
   fi

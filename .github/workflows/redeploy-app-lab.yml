@@ -117,6 +117,7 @@ jobs:
       API_GATEWAY_NAME: ${{ vars.API_GATEWAY_NAME || '' }}
       OFICINA_AUTH_ISSUER: ${{ vars.OFICINA_AUTH_ISSUER || '' }}
       OFICINA_AUTH_JWKS_URI: ${{ vars.OFICINA_AUTH_JWKS_URI || '' }}
+      OFICINA_AUTH_FORCE_LEGACY: ${{ vars.OFICINA_AUTH_FORCE_LEGACY || 'false' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
