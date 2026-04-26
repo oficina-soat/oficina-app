@@ -48,6 +48,7 @@ Quando esses repositórios estiverem disponíveis, eles devem ser consultados pa
 ## Implementação
 
 - Use Java 25 de forma idiomática, mas sem introduzir complexidade desnecessária.
+- Prefira usar imports e evite nomes de classes totalmente qualificados no código, salvo quando houver conflito real de nomes.
 - Siga os padrões já presentes no código para nomes, organização de pacotes e estilo de testes.
 - Em `atendimento`, preserve a separação entre entidades, casos de uso, gateways, presenters, controllers, resources, adapters de banco e integrações como e-mail e magic link.
 - Em `gestao_de_pecas`, preserve a separação entre catálogo, estoque, casos de uso, adapters web e persistência reativa.

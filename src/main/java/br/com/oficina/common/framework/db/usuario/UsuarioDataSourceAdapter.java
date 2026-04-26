@@ -19,6 +19,7 @@ import java.util.function.Consumer;
 
 @ApplicationScoped
 public class UsuarioDataSourceAdapter implements UsuarioGateway {
+    private static final int BCRYPT_ITERATION_COUNT = 10;
 
     @Override
     public CompletableFuture<Long> adicionar(Usuario usuario, String password) {
@@ -27,7 +28,7 @@ public class UsuarioDataSourceAdapter implements UsuarioGateway {
                         .flatMap(pessoa -> {
                             var usuarioEntity = new UsuarioEntity();
                             usuarioEntity.pessoa = pessoa;
-                            usuarioEntity.password = BcryptUtil.bcryptHash(password);
+                            usuarioEntity.password = BcryptUtil.bcryptHash(password, BCRYPT_ITERATION_COUNT);
                             usuarioEntity.status = usuario.status();
                             usuarioEntity.papelEntities.addAll(papeis);
                             return usuarioEntity.persistir()
@@ -69,7 +70,7 @@ public class UsuarioDataSourceAdapter implements UsuarioGateway {
                                         usuarioEntity.papelEntities.clear();
                                         usuarioEntity.papelEntities.addAll(papeis);
                                         if (novaSenha != null) {
-                                            usuarioEntity.password = BcryptUtil.bcryptHash(novaSenha);
+                                            usuarioEntity.password = BcryptUtil.bcryptHash(novaSenha, BCRYPT_ITERATION_COUNT);
                                         }
                                         return sincronizarClienteCompartilhado(pessoa).replaceWithVoid();
                                     }));

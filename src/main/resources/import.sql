@@ -13,9 +13,9 @@ INSERT INTO public.papel (id, nome) VALUES
 SELECT setval('papel_seq', (SELECT MAX(id) FROM public.papel));
 
 INSERT INTO public.usuario (id, pessoa_id, password, status) VALUES
-    (1, 1, '$2a$12$1CBAHD.wKOCpNFGnEMUfn.sMSf8Muag0NWrtrBBxJpssTdZ1OCN3e', 'ATIVO'),
-    (2, 2, '$2a$12$1CBAHD.wKOCpNFGnEMUfn.sMSf8Muag0NWrtrBBxJpssTdZ1OCN3e', 'ATIVO'),
-    (3, 3, '$2a$12$1CBAHD.wKOCpNFGnEMUfn.sMSf8Muag0NWrtrBBxJpssTdZ1OCN3e', 'ATIVO');
+    (1, 1, '$2a$10$NCIhuJtwVsBnhWcN/DaXGOmrQFI0hxnKYLQhan4BFpJJG2d2WU6Fm', 'ATIVO'),
+    (2, 2, '$2a$10$QFTTAjNFeLpbkthpoFvsPOAoPaC/pVDODjQbXn/LUATgz6hPAhZ6a', 'ATIVO'),
+    (3, 3, '$2a$10$AuD9uXJZnsb9TAP.Mj0mmuYqvL3/nL.nuTsNsGh.mEl1Ay49zB0Ty', 'ATIVO');
 SELECT setval('usuario_seq', (SELECT MAX(id) FROM public.usuario));
 
 INSERT INTO public.usuario_papel (usuario_id, papel_id) VALUES
