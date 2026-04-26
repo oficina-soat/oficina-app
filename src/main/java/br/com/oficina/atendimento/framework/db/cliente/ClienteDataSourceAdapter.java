@@ -5,6 +5,8 @@ import br.com.oficina.atendimento.core.entities.cliente.Documento;
 import br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory;
 import br.com.oficina.atendimento.core.entities.cliente.Email;
 import br.com.oficina.atendimento.core.interfaces.gateway.ClienteGateway;
+import br.com.oficina.common.core.entities.TipoPessoa;
+import br.com.oficina.common.framework.db.pessoa.PessoaEntity;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.concurrent.CompletableFuture;
@@ -20,7 +22,11 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
     }
 
     @Override public CompletableFuture<Long> adicionar(Cliente cliente) {
-        return toEntity(cliente).persistir()
+        return resolverPessoa(null, cliente)
+                .flatMap(pessoa -> {
+                    var clienteEntity = toEntity(cliente, pessoa);
+                    return clienteEntity.persistir();
+                })
                 .map(ClienteEntity::id)
                 .subscribeAsCompletionStage();
     }
@@ -33,11 +39,15 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
 
     @Override public CompletableFuture<Void> buscaParaAtualizar(long id, Consumer<Cliente> atualizacao) {
         return ClienteEntity.buscaParaAtualizar(id)
-                .onItem().ifNotNull().invoke(clienteEntity -> {
+                .onItem().ifNotNull().transformToUni(clienteEntity -> {
                     var clienteAtual = toDomain(clienteEntity);
                     atualizacao.accept(clienteAtual);
-                    clienteEntity.documento = clienteAtual.documento().valor();
-                    clienteEntity.email = clienteAtual.email().valor();
+                    return resolverPessoa(clienteEntity, clienteAtual)
+                            .invoke(pessoa -> {
+                                clienteEntity.pessoa = pessoa;
+                                clienteEntity.documento = clienteAtual.documento().valor();
+                                clienteEntity.email = clienteAtual.email().valor();
+                            });
                 })
                 .replaceWithVoid()
                 .subscribeAsCompletionStage();
@@ -56,10 +66,53 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
                 new Email(clienteEntity.email));
     }
 
-    private static ClienteEntity toEntity(Cliente cliente) {
+    private static ClienteEntity toEntity(Cliente cliente, PessoaEntity pessoa) {
         var clienteEntity = new ClienteEntity();
+        clienteEntity.pessoa = pessoa;
         clienteEntity.documento = cliente.documento().valor();
         clienteEntity.email = cliente.email().valor();
         return clienteEntity;
+    }
+
+    private static io.smallrye.mutiny.Uni<PessoaEntity> resolverPessoa(ClienteEntity clienteEntity, Cliente cliente) {
+        var pessoaAtual = clienteEntity == null ? null : clienteEntity.pessoa;
+        return PessoaEntity.buscarPorDocumento(cliente.documento().valor())
+                .flatMap(pessoaEncontrada -> {
+                    if (pessoaEncontrada == null) {
+                        return atualizarOuCriarPessoa(pessoaAtual, cliente);
+                    }
+
+                    if (pessoaAtual != null && pessoaEncontrada.id.equals(pessoaAtual.id)) {
+                        preencherPessoa(pessoaAtual, cliente);
+                        return io.smallrye.mutiny.Uni.createFrom().item(pessoaAtual);
+                    }
+
+                    return ClienteEntity.buscarPorPessoaId(pessoaEncontrada.id)
+                            .flatMap(outroCliente -> {
+                                if (outroCliente != null && (clienteEntity == null || !outroCliente.id.equals(clienteEntity.id))) {
+                                    return io.smallrye.mutiny.Uni.createFrom().failure(new IllegalArgumentException("Já existe cliente vinculado ao documento informado"));
+                                }
+
+                                preencherPessoa(pessoaEncontrada, cliente);
+                                return io.smallrye.mutiny.Uni.createFrom().item(pessoaEncontrada);
+                            });
+                });
+    }
+
+    private static io.smallrye.mutiny.Uni<PessoaEntity> atualizarOuCriarPessoa(PessoaEntity pessoaAtual, Cliente cliente) {
+        if (pessoaAtual != null) {
+            preencherPessoa(pessoaAtual, cliente);
+            return io.smallrye.mutiny.Uni.createFrom().item(pessoaAtual);
+        }
+
+        var novaPessoa = new PessoaEntity();
+        preencherPessoa(novaPessoa, cliente);
+        return novaPessoa.persistir();
+    }
+
+    private static void preencherPessoa(PessoaEntity pessoa, Cliente cliente) {
+        pessoa.documento = cliente.documento().valor();
+        pessoa.tipoPessoa = TipoPessoa.fromDocumento(cliente.documento().valor());
+        pessoa.email = cliente.email().valor();
     }
 }

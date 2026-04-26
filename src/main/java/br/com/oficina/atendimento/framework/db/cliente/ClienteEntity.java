@@ -1,16 +1,24 @@
 package br.com.oficina.atendimento.framework.db.cliente;
 
+import br.com.oficina.common.framework.db.pessoa.PessoaEntity;
 import io.quarkus.hibernate.reactive.panache.PanacheEntity;
 import io.smallrye.mutiny.Uni;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.JoinColumn;
 import jakarta.persistence.LockModeType;
+import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotNull;
 
 @Entity
 @Table(name = "cliente")
 public class ClienteEntity extends PanacheEntity {
+
+    @OneToOne(optional = false, fetch = FetchType.LAZY)
+    @JoinColumn(name = "pessoa_id", nullable = false, unique = true)
+    public PessoaEntity pessoa;
 
     @NotNull
     @Column(name = "documento", nullable = false, unique = true)
@@ -22,6 +30,11 @@ public class ClienteEntity extends PanacheEntity {
 
     public static Uni<ClienteEntity> buscarPorDocumento(String documento) {
         return find("documento", documento)
+                .firstResult();
+    }
+
+    public static Uni<ClienteEntity> buscarPorPessoaId(long pessoaId) {
+        return find("pessoa.id", pessoaId)
                 .firstResult();
     }
 

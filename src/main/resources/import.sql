@@ -1,6 +1,33 @@
-INSERT INTO public.cliente (id, documento, email) VALUES
-    (1, '50132372037', 'cliente1@oficina.com'),
-    (2, '12345678900', 'cliente2@oficina.com');
+INSERT INTO public.pessoa (id, documento, tipo_pessoa, nome, email) VALUES
+    (1, '84191404067', 'FISICA', 'Administrador Laboratorio', 'admin@oficina.com'),
+    (2, '36655462007', 'FISICA', 'Mecanico Laboratorio', 'mecanico@oficina.com'),
+    (3, '17245011010', 'FISICA', 'Recepcionista Laboratorio', 'recepcao@oficina.com'),
+    (4, '50132372037', 'FISICA', 'Cliente Laboratorio 1', 'cliente1@oficina.com'),
+    (5, '12345678900', 'FISICA', 'Cliente Laboratorio 2', 'cliente2@oficina.com');
+SELECT setval('pessoa_seq', (SELECT MAX(id) FROM public.pessoa));
+
+INSERT INTO public.papel (id, nome) VALUES
+    (1, 'administrativo'),
+    (2, 'mecanico'),
+    (3, 'recepcionista');
+SELECT setval('papel_seq', (SELECT MAX(id) FROM public.papel));
+
+INSERT INTO public.usuario (id, pessoa_id, password, status) VALUES
+    (1, 1, '$2a$12$1CBAHD.wKOCpNFGnEMUfn.sMSf8Muag0NWrtrBBxJpssTdZ1OCN3e', 'ATIVO'),
+    (2, 2, '$2a$12$1CBAHD.wKOCpNFGnEMUfn.sMSf8Muag0NWrtrBBxJpssTdZ1OCN3e', 'ATIVO'),
+    (3, 3, '$2a$12$1CBAHD.wKOCpNFGnEMUfn.sMSf8Muag0NWrtrBBxJpssTdZ1OCN3e', 'ATIVO');
+SELECT setval('usuario_seq', (SELECT MAX(id) FROM public.usuario));
+
+INSERT INTO public.usuario_papel (usuario_id, papel_id) VALUES
+    (1, 1),
+    (1, 2),
+    (1, 3),
+    (2, 2),
+    (3, 3);
+
+INSERT INTO public.cliente (id, pessoa_id, documento, email) VALUES
+    (1, 4, '50132372037', 'cliente1@oficina.com'),
+    (2, 5, '12345678900', 'cliente2@oficina.com');
 SELECT setval('cliente_seq', (SELECT MAX(id) FROM public.cliente));
 
 INSERT INTO public.veiculo (id, placa, marca, modelo, ano) VALUES
@@ -45,5 +72,6 @@ INSERT INTO public.estoque_saldo (quantidade, peca_id) VALUES (50.000, 1);
 INSERT INTO public.servico (id, nome) VALUES (1, 'Troca de oleo');
 SELECT setval('servico_seq', (SELECT MAX(id) FROM public.servico));
 
-INSERT INTO public.os_item_servico (quantidade, valor_total, valor_unitario, id, servico_id, ordem_de_servico_id) VALUES (1.000, 120.00, 150.00, 1, 1, '4298695b-d6ae-45ac-a659-c4de90f81eb4');
+INSERT INTO public.os_item_servico (quantidade, valor_total, valor_unitario, id, servico_id, ordem_de_servico_id) VALUES
+    (1.000, 120.00, 150.00, 1, 1, '4298695b-d6ae-45ac-a659-c4de90f81eb4');
 SELECT setval('os_item_servico_seq', (SELECT MAX(id) FROM public.os_item_servico));
