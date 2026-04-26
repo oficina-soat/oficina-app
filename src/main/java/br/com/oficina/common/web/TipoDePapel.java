@@ -1,5 +1,7 @@
 package br.com.oficina.common.web;
 
+import java.util.Arrays;
+
 public enum TipoDePapel {
     ADMINISTRATIVO(TipoDePapelValues.ADMINISTRATIVO),
     RECEPCIONISTA(TipoDePapelValues.RECEPCIONISTA),
@@ -13,5 +15,17 @@ public enum TipoDePapel {
 
     public String valor() {
         return valor;
+    }
+
+    public static TipoDePapel fromValor(String valor) {
+        if (valor == null || valor.isBlank()) {
+            throw new IllegalArgumentException("Papel é obrigatório");
+        }
+
+        var normalizado = valor.trim().toLowerCase();
+        return Arrays.stream(values())
+                .filter(tipoDePapel -> tipoDePapel.valor.equals(normalizado))
+                .findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("Papel inválido: " + valor));
     }
 }

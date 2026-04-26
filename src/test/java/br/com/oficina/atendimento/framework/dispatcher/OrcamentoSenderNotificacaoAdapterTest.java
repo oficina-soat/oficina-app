@@ -1,10 +1,9 @@
 package br.com.oficina.atendimento.framework.dispatcher;
 
 import br.com.oficina.atendimento.framework.security.MagicLinkService;
-import br.com.oficina.atendimento.framework.service.EmailService;
+import br.com.oficina.atendimento.framework.service.NotificacaoService;
 import br.com.oficina.atendimento.interfaces.presenters.OrcamentoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.view_model.OrcamentoViewModel;
-import io.smallrye.mutiny.Uni;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -18,12 +17,12 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class OrcamentoSenderEmailAdapterTest {
+class OrcamentoSenderNotificacaoAdapterTest {
 
     @Test
-    void deveEnviarOrcamentoPorEmailComAssuntoETextoDoViewModel() {
+    void deveEnviarOrcamentoPorNotificacaoComAssuntoETextoDoViewModel() {
         var presenter = mock(OrcamentoPresenterAdapter.class);
-        var emailService = mock(EmailService.class);
+        var notificacaoService = mock(NotificacaoService.class);
         var magicLinkService = mock(MagicLinkService.class);
         var viewModel = new OrcamentoViewModel(
                 UUID.fromString("11111111-1111-1111-1111-111111111111"),
@@ -36,10 +35,10 @@ class OrcamentoSenderEmailAdapterTest {
                         "http://localhost:8080/acompanhar-link",
                         "http://localhost:8080/aprovar",
                         "http://localhost:8080/recusar")));
-        when(emailService.enviar(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
-                .thenReturn(Uni.createFrom().voidItem());
+        when(notificacaoService.enviar(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.anyString()))
+                .thenReturn(CompletableFuture.completedFuture(null));
 
-        var adapter = new OrcamentoSenderEmailAdapter(presenter, emailService, magicLinkService);
+        var adapter = new OrcamentoSenderNotificacaoAdapter(presenter, notificacaoService, magicLinkService);
         adapter.configurarEmailDestino("cliente@oficina.com");
 
         adapter.enviar().join();
@@ -47,7 +46,7 @@ class OrcamentoSenderEmailAdapterTest {
         var mensagemCaptor = ArgumentCaptor.forClass(String.class);
         var assuntoCaptor = ArgumentCaptor.forClass(String.class);
         var emailCaptor = ArgumentCaptor.forClass(String.class);
-        verify(emailService).enviar(mensagemCaptor.capture(), assuntoCaptor.capture(), emailCaptor.capture());
+        verify(notificacaoService).enviar(mensagemCaptor.capture(), assuntoCaptor.capture(), emailCaptor.capture());
 
         assertEquals("cliente@oficina.com", emailCaptor.getValue());
         assertEquals("Orçamento da Ordem de Serviço 11111111-1111-1111-1111-111111111111", assuntoCaptor.getValue());
