@@ -412,7 +412,8 @@ class OrdemDeServicoResourceIT {
                         "50132372037",
                         "abc1234"))
                 .when().post("/ordem-de-servico")
-                .then().statusCode(204);
+                .then().statusCode(200)
+                .body("ordemDeServicoId", Matchers.notNullValue());
     }
 
     @Test

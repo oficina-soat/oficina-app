@@ -109,7 +109,7 @@ public class AtendimentoConfiguration {
         return new OrdemDeServicoCommandController(
                 new AbrirOrdemDeServicoCompletaUseCase(ordemDeServicoGateway, clienteGateway, veiculoGateway, catalogoGateway, identificadorOrdemDeServicoPresenterAdapter, transicaoDeEstadoDaOrdemDeServicoService),
                 new AprovarOrdemDeServicoUseCase(transicaoDeEstadoDaOrdemDeServicoService),
-                new CriarOrdemDeServicoUseCase(ordemDeServicoGateway, clienteGateway, veiculoGateway),
+                new CriarOrdemDeServicoUseCase(ordemDeServicoGateway, clienteGateway, veiculoGateway, identificadorOrdemDeServicoPresenterAdapter),
                 new EntregarOrdemDeServicoUseCase(transicaoDeEstadoDaOrdemDeServicoService),
                 new FinalizarDiagnosticoUseCase(transicaoDeEstadoDaOrdemDeServicoService, estoqueGateway, clienteGateway, orcamentoPresenterAdapter, orcamentoSender),
                 new FinalizarOrdemDeServicoUseCase(transicaoDeEstadoDaOrdemDeServicoService),
