@@ -417,6 +417,20 @@ class OrdemDeServicoResourceIT {
     }
 
     @Test
+    void deveRetornarNotFoundAoCriarOrdemDeServicoComClienteInexistenteTest() {
+        var cpfInexistente = "12345678909";
+
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new OrdemDeServicoCommandController.CriarOrdemDeServicoRequest(
+                        cpfInexistente,
+                        "abc1234"))
+                .when().post("/ordem-de-servico")
+                .then().statusCode(404)
+                .body(Matchers.equalTo("Cliente não encontrado para o documento informado: " + cpfInexistente));
+    }
+
+    @Test
     void deveEntregarComSucessoTest() {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .when().post("/ordem-de-servico/7b2276e8-fa72-4f4c-a3b0-2c5b1bf427ef/entregar")
