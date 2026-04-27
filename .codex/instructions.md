@@ -10,6 +10,7 @@ Este projeto é uma aplicação Java/Quarkus executada com Maven Wrapper, Docker
 - Prefira comandos reais de validação em vez de inferências.
 - Quando alterar código Java, execute ao menos testes relacionados.
 - Quando alterar configuração de build, Docker, CI/CD ou infraestrutura, execute validações compatíveis.
+- Qualquer novo build publicado, nova imagem, nova release GitHub ou novo deploy/redeploy baseado em artefato versionado exige incremento prévio de `project.version` no `pom.xml`.
 - Quando a tarefa depender de AWS, valide também com `./scripts/check-env.sh --require-aws`.
 
 ## Maven Wrapper
