@@ -5,6 +5,8 @@ import br.com.oficina.atendimento.interfaces.presenters.view_model.MagicLinkHtml
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.util.Map;
+
 public final class MagicLinkHtmlErrorFactory {
 
     private MagicLinkHtmlErrorFactory() {
@@ -14,7 +16,8 @@ public final class MagicLinkHtmlErrorFactory {
         var action = MagicLinkActionPage.fromPath(path);
         if (action == null) {
             return Response.status(status)
-                    .entity(message)
+                    .type(MediaType.APPLICATION_JSON)
+                    .entity(Map.of("message", message))
                     .build();
         }
 

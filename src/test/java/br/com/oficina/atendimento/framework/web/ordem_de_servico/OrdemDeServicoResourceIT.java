@@ -320,7 +320,9 @@ class OrdemDeServicoResourceIT {
                         TipoDePapel.MECANICO,
                         409)
                         .invoke(responseBody ->
-                                Assertions.assertEquals("Peca sem saldo suficiente no estoque", responseBody)));
+                                Assertions.assertEquals(
+                                        "Peca sem saldo suficiente no estoque",
+                                        getJsonField(responseBody, "message"))));
 
         asserter.execute(() ->
                 OrdemDeServicoEntity.<OrdemDeServicoEntity>findById(ordemDeServicoIdCriada.get())
@@ -427,7 +429,7 @@ class OrdemDeServicoResourceIT {
                         "abc1234"))
                 .when().post("/ordem-de-servico")
                 .then().statusCode(404)
-                .body(Matchers.equalTo("Cliente não encontrado para o documento informado: " + cpfInexistente));
+                .body("message", Matchers.equalTo("Cliente não encontrado para o documento informado: " + cpfInexistente));
     }
 
     @Test
@@ -580,6 +582,14 @@ class OrdemDeServicoResourceIT {
     private UUID getUuid(String responseBody, String fieldName) {
         try {
             return UUID.fromString(mapper.readTree(responseBody).get(fieldName).asText());
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String getJsonField(String responseBody, String fieldName) {
+        try {
+            return mapper.readTree(responseBody).get(fieldName).asText();
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
