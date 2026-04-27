@@ -3,6 +3,7 @@
     <modelVersion>4.0.0</modelVersion>
     <groupId>br.com.oficina</groupId>
     <artifactId>oficina-app</artifactId>
+    <!-- Incremente project.version antes de qualquer novo build publicado, release GitHub ou rollout que dependa de nova imagem. -->
     <version>1.0.11</version>
 
     <properties>
