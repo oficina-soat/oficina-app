@@ -15,6 +15,7 @@ import br.com.oficina.atendimento.core.usecases.cliente.ListarClientesUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AbrirOrdemDeServicoCompletaUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AcompanharOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AprovarOrdemDeServicoUseCase;
+import br.com.oficina.atendimento.core.usecases.ordem_de_servico.BuscarOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.ConsultarHistoricoDeEstadoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.CriarOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.EntregarOrdemDeServicoUseCase;
@@ -124,6 +125,7 @@ class ControllersTest {
         var incluirPeca = mock(IncluirPecaUseCase.class);
         var incluirServico = mock(IncluirServicoUseCase.class);
         var recusar = mock(RecusarOrdemDeServicoUseCase.class);
+        var buscar = mock(BuscarOrdemDeServicoUseCase.class);
         var acompanhar = mock(AcompanharOrdemDeServicoUseCase.class);
         var listar = mock(ListarOrdemDeServicoUseCase.class);
         var historico = mock(ConsultarHistoricoDeEstadoUseCase.class);
@@ -137,6 +139,7 @@ class ControllersTest {
         when(incluirPeca.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(incluirServico.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(recusar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(buscar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(acompanhar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(listar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(historico.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -166,7 +169,8 @@ class ControllersTest {
         commandController.finalizarOrdemDeServico(id).join();
         commandController.entregarOrdemDeServico(id).join();
 
-        var queryController = new OrdemDeServicoQueryController(acompanhar, listar, historico);
+        var queryController = new OrdemDeServicoQueryController(buscar, acompanhar, listar, historico);
+        queryController.buscar(id).join();
         queryController.acompanharOrdemDeServico(id).join();
         queryController.consultarHistoricoDeEstado(id).join();
         queryController.listarOrdemDeServico(ListarOrdensDetalhadasQuery.of(null, null, null, null, null, null, 0, 20)).join();
@@ -181,6 +185,7 @@ class ControllersTest {
         verify(incluirServico).executar(any());
         verify(finalizar).executar(any());
         verify(entregar).executar(any());
+        verify(buscar).executar(any());
         verify(acompanhar).executar(any());
         verify(historico).executar(any());
         verify(listar).executar(any());

@@ -458,6 +458,17 @@ class OrdemDeServicoResourceIT {
     }
 
     @Test
+    void deveConsultarOrdemDeServicoPorIdComSucesso() {
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
+                .when().get("/ordem-de-servico/4298695b-d6ae-45ac-a659-c4de90f81eb4")
+                .then().statusCode(200)
+                .body("id", Matchers.equalTo("4298695b-d6ae-45ac-a659-c4de90f81eb4"))
+                .body("estadoAtual", Matchers.notNullValue())
+                .body("pecas.size()", greaterThanOrEqualTo(1))
+                .body("servicos.size()", greaterThanOrEqualTo(1));
+    }
+
+    @Test
     void deveListarOrdensAbertasPriorizadasComStatusEOrdemEsperados() {
         var response = given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
                 .when().get("/ordem-de-servico/abertas-priorizadas")

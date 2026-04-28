@@ -18,6 +18,7 @@ import br.com.oficina.atendimento.core.usecases.cliente.ListarClientesUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AbrirOrdemDeServicoCompletaUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AcompanharOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AprovarOrdemDeServicoUseCase;
+import br.com.oficina.atendimento.core.usecases.ordem_de_servico.BuscarOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.ConsultarHistoricoDeEstadoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.CriarOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.EntregarOrdemDeServicoUseCase;
@@ -42,6 +43,7 @@ import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoQueryCont
 import br.com.oficina.atendimento.interfaces.controllers.VeiculoCommandController;
 import br.com.oficina.atendimento.interfaces.controllers.VeiculoQueryController;
 import br.com.oficina.atendimento.interfaces.presenters.AcompanharOrdemDeServicoPresenterAdapter;
+import br.com.oficina.atendimento.interfaces.presenters.BuscarOrdemDeServicoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.ClientePresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.EstadoAtualOrdemDeServicoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.HistoricoEstadoPresenterAdapter;
@@ -120,10 +122,12 @@ public class AtendimentoConfiguration {
     }
 
     @Produces OrdemDeServicoQueryController ordemDeServicoQueryController(OrdemDeServicoGateway ordemDeServicoGateway,
+                                                                          BuscarOrdemDeServicoPresenterAdapter buscarOrdemDeServicoPresenterAdapter,
                                                                           AcompanharOrdemDeServicoPresenterAdapter acompanharOrdemDeServicoPresenterAdapter,
                                                                           ListarOrdemDeServicoPresenterAdapter listarOrdemDeServicoPresenterAdapter,
                                                                           HistoricoEstadoPresenterAdapter historicoEstadoPresenterAdapter) {
         return new OrdemDeServicoQueryController(
+                new BuscarOrdemDeServicoUseCase(ordemDeServicoGateway, buscarOrdemDeServicoPresenterAdapter),
                 new AcompanharOrdemDeServicoUseCase(ordemDeServicoGateway, acompanharOrdemDeServicoPresenterAdapter),
                 new ListarOrdemDeServicoUseCase(ordemDeServicoGateway, listarOrdemDeServicoPresenterAdapter),
                 new ConsultarHistoricoDeEstadoUseCase(ordemDeServicoGateway, historicoEstadoPresenterAdapter));
@@ -152,6 +156,10 @@ public class AtendimentoConfiguration {
 
     @Produces @RequestScoped AcompanharOrdemDeServicoPresenterAdapter ordemDeServicoPresenter() {
         return new AcompanharOrdemDeServicoPresenterAdapter();
+    }
+
+    @Produces @RequestScoped BuscarOrdemDeServicoPresenterAdapter buscarOrdemDeServicoPresenterAdapter() {
+        return new BuscarOrdemDeServicoPresenterAdapter();
     }
 
     @Produces @RequestScoped EstadoAtualOrdemDeServicoPresenterAdapter estadoAtualOrdemDeServicoPresenterAdapter() {

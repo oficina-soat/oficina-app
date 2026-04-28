@@ -194,6 +194,23 @@ class OrdemDeServicoUseCasesTest {
     }
 
     @Test
+    void buscarOrdemDeServico_deveRetornarDadosDaOs() {
+        var osGateway = mock(OrdemDeServicoGateway.class);
+        var presenter = mock(OrdemDeServicoPresenter.class);
+        var os = osEmEstado(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO);
+        when(osGateway.buscarPorId(os.id())).thenReturn(CompletableFuture.completedFuture(os));
+        var useCase = new BuscarOrdemDeServicoUseCase(osGateway, presenter);
+
+        useCase.executar(new BuscarOrdemDeServicoUseCase.Command(os.id())).join();
+
+        var dtoCaptor = ArgumentCaptor.forClass(OrdemDeServicoDTO.class);
+        verify(presenter).present(dtoCaptor.capture());
+        assertEquals(os.id(), dtoCaptor.getValue().id());
+        assertEquals(os.clienteId(), dtoCaptor.getValue().clienteId());
+        assertEquals(os.veiculoId(), dtoCaptor.getValue().veiculoId());
+    }
+
+    @Test
     void acompanharOrdemDeServico_devePropagarErro() {
         var osGateway = mock(OrdemDeServicoGateway.class);
         when(osGateway.buscarPorId(any())).thenReturn(CompletableFuture.failedFuture(new IllegalArgumentException("não encontrada")));
