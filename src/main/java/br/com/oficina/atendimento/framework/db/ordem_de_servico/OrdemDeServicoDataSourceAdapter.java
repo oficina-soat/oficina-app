@@ -14,8 +14,11 @@ import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OrdemDe
 import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OsItemPecaEntity;
 import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OsItemServicoEntity;
 import br.com.oficina.common.PageResult;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
@@ -84,13 +87,37 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
 
         return OrdemDeServicoEntity
                 .count(consulta.hqlCount(), consulta.countParams())
-                .chain(total -> OrdemDeServicoEntity
-                        .busca(consulta.hqlData(), consulta.dataParams())
-                        .page(query.page, query.size)
-                        .list()
-                        .map(osList -> viewFromEntity(osList, consulta.ordenacao()))
-                        .map(osList ->
-                                new PageResult<>(query.size, query.page, total, osList)))
+                .chain(total -> {
+                    if (total == 0) {
+                        return Uni.createFrom()
+                                .item(new PageResult<OrdemDeServicoDTO>(query.size, query.page, 0, List.of()));
+                    }
+
+                    return OrdemDeServicoEntity
+                            .busca(consulta.hqlPage(), consulta.dataParams())
+                            .page(query.page, query.size)
+                            .list()
+                            .chain(osPage -> {
+                                var idsPaginados = osPage.stream()
+                                        .map(os -> os.id)
+                                        .toList();
+
+                                if (idsPaginados.isEmpty()) {
+                                    return Uni.createFrom()
+                                            .item(new PageResult<OrdemDeServicoDTO>(query.size, query.page, total, List.of()));
+                                }
+
+                                var params = new HashMap<String, Object>();
+                                params.put("ids", idsPaginados);
+
+                                return OrdemDeServicoEntity
+                                        .busca(consulta.hqlFetchByIds(), params)
+                                        .list()
+                                        .map(osList -> reordenarPorIds(osList, idsPaginados))
+                                        .map(osList -> viewFromEntity(osList, consulta.ordenacao()))
+                                        .map(osList -> new PageResult<>(query.size, query.page, total, osList));
+                            });
+                })
                 .subscribeAsCompletionStage();
     }
 
@@ -112,6 +139,21 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
 
         return entidades.stream()
                 .map(OrdemDeServicoDTO::fromEntity)
+                .toList();
+    }
+
+    private static List<OrdemDeServicoEntity> reordenarPorIds(List<OrdemDeServicoEntity> osList, List<UUID> idsPaginados) {
+        if (osList.isEmpty() || idsPaginados.isEmpty()) {
+            return List.of();
+        }
+
+        var ordemPorId = new HashMap<UUID, Integer>();
+        for (int i = 0; i < idsPaginados.size(); i++) {
+            ordemPorId.put(idsPaginados.get(i), i);
+        }
+
+        return osList.stream()
+                .sorted(Comparator.comparingInt(os -> ordemPorId.getOrDefault(os.id, Integer.MAX_VALUE)))
                 .toList();
     }
 

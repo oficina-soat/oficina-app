@@ -11,9 +11,11 @@ import br.com.oficina.atendimento.core.usecases.cliente.AdicionarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.ApagarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.AtualizarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.BuscarClienteUseCase;
+import br.com.oficina.atendimento.core.usecases.cliente.ListarClientesUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AbrirOrdemDeServicoCompletaUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AcompanharOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.AprovarOrdemDeServicoUseCase;
+import br.com.oficina.atendimento.core.usecases.ordem_de_servico.BuscarOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.ConsultarHistoricoDeEstadoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.CriarOrdemDeServicoUseCase;
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.EntregarOrdemDeServicoUseCase;
@@ -61,6 +63,7 @@ class ControllersTest {
             return CompletableFuture.completedFuture(id);
         });
         when(clienteGateway.buscarPorId(anyLong())).thenAnswer(invocation -> CompletableFuture.completedFuture(clienteStore.get(invocation.getArgument(0))));
+        when(clienteGateway.listar()).thenAnswer(_ -> CompletableFuture.completedFuture(clienteStore.values().stream().toList()));
         when(clienteGateway.buscaParaAtualizar(eq(1L), any())).thenAnswer(invocation -> {
             Consumer<Cliente> atualizacao = invocation.getArgument(1);
             atualizacao.accept(clienteStore.get(1L));
@@ -71,13 +74,17 @@ class ControllersTest {
                 new AdicionarClienteUseCase(clienteGateway),
                 new AtualizarClienteUseCase(clienteGateway),
                 new ApagarClienteUseCase(clienteGateway));
-        var clienteQuery = new ClienteQueryController(new BuscarClienteUseCase(clienteGateway, clientePresenter));
+        var clienteQuery = new ClienteQueryController(
+                new BuscarClienteUseCase(clienteGateway, clientePresenter),
+                new ListarClientesUseCase(clienteGateway, clientePresenter));
 
         clienteCommand.adicionarCliente(new ClienteCommandController.ClienteRequest("11444777000161", "novo@cliente.com")).join();
         clienteCommand.atualizarCliente(1L, new ClienteCommandController.ClienteRequest("04252011000110", "alterado@cliente.com")).join();
         clienteQuery.buscar(1L).join();
+        clienteQuery.listar().join();
         assertEquals("04252011000110", clientePresenter.viewModel().documento());
         assertEquals("alterado@cliente.com", clientePresenter.viewModel().email());
+        assertEquals(2, clientePresenter.viewModels().size());
 
         var veiculoStore = new HashMap<Long, Veiculo>();
         var veiculoGateway = mock(VeiculoGateway.class);
@@ -118,6 +125,7 @@ class ControllersTest {
         var incluirPeca = mock(IncluirPecaUseCase.class);
         var incluirServico = mock(IncluirServicoUseCase.class);
         var recusar = mock(RecusarOrdemDeServicoUseCase.class);
+        var buscar = mock(BuscarOrdemDeServicoUseCase.class);
         var acompanhar = mock(AcompanharOrdemDeServicoUseCase.class);
         var listar = mock(ListarOrdemDeServicoUseCase.class);
         var historico = mock(ConsultarHistoricoDeEstadoUseCase.class);
@@ -131,6 +139,7 @@ class ControllersTest {
         when(incluirPeca.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(incluirServico.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(recusar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
+        when(buscar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(acompanhar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(listar.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(historico.executar(any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -160,7 +169,8 @@ class ControllersTest {
         commandController.finalizarOrdemDeServico(id).join();
         commandController.entregarOrdemDeServico(id).join();
 
-        var queryController = new OrdemDeServicoQueryController(acompanhar, listar, historico);
+        var queryController = new OrdemDeServicoQueryController(buscar, acompanhar, listar, historico);
+        queryController.buscar(id).join();
         queryController.acompanharOrdemDeServico(id).join();
         queryController.consultarHistoricoDeEstado(id).join();
         queryController.listarOrdemDeServico(ListarOrdensDetalhadasQuery.of(null, null, null, null, null, null, 0, 20)).join();
@@ -175,6 +185,7 @@ class ControllersTest {
         verify(incluirServico).executar(any());
         verify(finalizar).executar(any());
         verify(entregar).executar(any());
+        verify(buscar).executar(any());
         verify(acompanhar).executar(any());
         verify(historico).executar(any());
         verify(listar).executar(any());

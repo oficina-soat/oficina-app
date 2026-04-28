@@ -77,6 +77,7 @@ Este projeto depende de versionamento explícito para gerar novo build, release 
 - A versão da aplicação fica em `pom.xml`.
 - A tag da imagem publicada deve continuar alinhada a `project.version`.
 - A release GitHub segue o padrão `v<project.version>`.
+- Considere como regra obrigatória: qualquer novo build publicado, nova imagem, nova release GitHub ou novo deploy/redeploy baseado em artefato versionado exige incremento prévio de `project.version` no `pom.xml`.
 - Sempre que for necessário refazer build publicado, gerar nova release ou disparar novo ciclo de deploy, atualize a versão do projeto antes.
 - Não reutilize a mesma versão para tentar forçar nova imagem, nova release ou novo rollout.
 - Ao alterar algo que impacte artefato publicado, confirme se a mudança também exige incremento de versão.

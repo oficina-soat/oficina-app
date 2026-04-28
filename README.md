@@ -104,6 +104,18 @@ Gere um par local não versionado para JWT:
 ./scripts/generate-dev-jwt-keys.sh
 ```
 
+Para gerar um token JWT local compatível com o Swagger UI:
+
+```bash
+./scripts/generate-dev-jwt-token.sh
+```
+
+Por padrão, o script emite um token com os papéis `administrativo`, `mecanico` e `recepcionista`. Para customizar:
+
+```bash
+./scripts/generate-dev-jwt-token.sh --subject 36655462007 --roles mecanico
+```
+
 ```bash
 ./mvnw quarkus:dev
 ```

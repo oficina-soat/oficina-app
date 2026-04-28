@@ -7,6 +7,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 ECR_REPOSITORY_NAME="${ECR_REPOSITORY_NAME:-oficina}"
 ECR_REPOSITORY_URL="${ECR_REPOSITORY_URL:-}"
+# A tag publicada da imagem deve acompanhar project.version; novo build publicado requer nova versao.
 APP_IMAGE_TAG="${APP_IMAGE_TAG:-${IMAGE_TAG:-}}"
 
 pom_version() {

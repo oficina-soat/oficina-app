@@ -320,7 +320,9 @@ class OrdemDeServicoResourceIT {
                         TipoDePapel.MECANICO,
                         409)
                         .invoke(responseBody ->
-                                Assertions.assertEquals("Peca sem saldo suficiente no estoque", responseBody)));
+                                Assertions.assertEquals(
+                                        "Peca sem saldo suficiente no estoque",
+                                        getJsonField(responseBody, "message"))));
 
         asserter.execute(() ->
                 OrdemDeServicoEntity.<OrdemDeServicoEntity>findById(ordemDeServicoIdCriada.get())
@@ -412,7 +414,22 @@ class OrdemDeServicoResourceIT {
                         "50132372037",
                         "abc1234"))
                 .when().post("/ordem-de-servico")
-                .then().statusCode(204);
+                .then().statusCode(200)
+                .body("ordemDeServicoId", Matchers.notNullValue());
+    }
+
+    @Test
+    void deveRetornarNotFoundAoCriarOrdemDeServicoComClienteInexistenteTest() {
+        var cpfInexistente = "12345678909";
+
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new OrdemDeServicoCommandController.CriarOrdemDeServicoRequest(
+                        cpfInexistente,
+                        "abc1234"))
+                .when().post("/ordem-de-servico")
+                .then().statusCode(404)
+                .body("message", Matchers.equalTo("Cliente não encontrado para o documento informado: " + cpfInexistente));
     }
 
     @Test
@@ -438,6 +455,17 @@ class OrdemDeServicoResourceIT {
                 .body("items.id", hasItem(osId.toString()))
                 .body("items.find { it.id == '%s' }.pecas.size()".formatted(osId), greaterThanOrEqualTo(1))
                 .body("items.find { it.id == '%s' }.servicos.size()".formatted(osId), greaterThanOrEqualTo(1));
+    }
+
+    @Test
+    void deveConsultarOrdemDeServicoPorIdComSucesso() {
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
+                .when().get("/ordem-de-servico/4298695b-d6ae-45ac-a659-c4de90f81eb4")
+                .then().statusCode(200)
+                .body("id", Matchers.equalTo("4298695b-d6ae-45ac-a659-c4de90f81eb4"))
+                .body("estadoAtual", Matchers.notNullValue())
+                .body("pecas.size()", greaterThanOrEqualTo(1))
+                .body("servicos.size()", greaterThanOrEqualTo(1));
     }
 
     @Test
@@ -565,6 +593,14 @@ class OrdemDeServicoResourceIT {
     private UUID getUuid(String responseBody, String fieldName) {
         try {
             return UUID.fromString(mapper.readTree(responseBody).get(fieldName).asText());
+        } catch (JsonProcessingException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private String getJsonField(String responseBody, String fieldName) {
+        try {
+            return mapper.readTree(responseBody).get(fieldName).asText();
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }

@@ -37,6 +37,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # Regra do pipeline: todo novo build publicado usa uma nova project.version.
           extract_version() {
             sed -n '0,/<version>[[:space:]]*/{
               s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
@@ -81,7 +82,7 @@ jobs:
           fi
 
           if [[ "${{ github.ref_name }}" == "main" && "${version_changed}" == "true" && "${release_exists}" == "true" ]]; then
-            echo "A release ${release_tag} ja existe. Incremente a versao do app antes de gerar nova imagem." >&2
+            echo "A release ${release_tag} ja existe. Todo novo build publicado exige incremento de project.version em pom.xml antes de gerar nova imagem." >&2
             exit 1
           fi
 
@@ -101,6 +102,7 @@ jobs:
           echo "Deploy necessario: ${deploy_needed}"
           echo "Release alvo: ${release_tag}"
           echo "Release existente: ${release_exists}"
+          echo "Regra: novo build publicado/release/deploy requer nova project.version no pom.xml."
 
   build_and_unit_tests:
     name: build-and-unit-tests
@@ -191,9 +193,9 @@ jobs:
 
           title="Atualizar ${BASE_BRANCH} com ${HEAD_BRANCH} - oficina-app ${RELEASE_TAG}"
           if [[ "${DEPLOY_NEEDED}" == "true" ]]; then
-            deploy_note="Ao aceitar este PR, o merge em ${BASE_BRANCH} cria a imagem Docker, publica no ECR, fecha a release e executa o rollout no EKS."
+            deploy_note="Ao aceitar este PR, o merge em ${BASE_BRANCH} cria a imagem Docker, publica no ECR, fecha a release e executa o rollout no EKS. Para qualquer novo build publicado depois disso, incremente project.version no pom.xml antes do proximo merge."
           else
-            deploy_note="Ao aceitar este PR, o merge em ${BASE_BRANCH} atualiza o codigo sem gerar nova imagem, release ou deploy, porque a release ${RELEASE_TAG} ja existe."
+            deploy_note="Ao aceitar este PR, o merge em ${BASE_BRANCH} atualiza o codigo sem gerar nova imagem, release ou deploy, porque a release ${RELEASE_TAG} ja existe. Se precisar de novo build publicado, release ou deploy, incremente project.version no pom.xml antes de novo merge."
           fi
 
           body="$(printf '%s\n\n%s\n%s\n%s\n%s\n%s\n%s\n\n%s\n' \
@@ -269,7 +271,7 @@ jobs:
           fi
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
-            echo "A release ${RELEASE_TAG} ja existe. Incremente a versao do app antes de gerar nova imagem." >&2
+            echo "A release ${RELEASE_TAG} ja existe. Todo novo build publicado exige incremento de project.version em pom.xml antes de gerar nova imagem." >&2
             exit 1
           fi
 
