@@ -2,8 +2,6 @@ package br.com.oficina.atendimento.framework.web.ordem_de_servico;
 
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.TipoDeEstadoDaOrdemDeServico;
 import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OrdemDeServicoEntity;
-import br.com.oficina.atendimento.framework.security.ActionTokenAction;
-import br.com.oficina.atendimento.framework.security.ActionTokenService;
 import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoCommandController;
 import br.com.oficina.common.tests.Helpers;
 import br.com.oficina.common.web.TipoDePapel;
@@ -34,7 +32,6 @@ import java.net.URI;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
-
 import static io.restassured.RestAssured.given;
 import static org.hamcrest.Matchers.empty;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -44,7 +41,6 @@ import static org.hamcrest.Matchers.not;
 @QuarkusTest
 class OrdemDeServicoResourceIT {
     @Inject Vertx vertx;
-    @Inject ActionTokenService actionTokenService;
     @TestHTTPResource URI baseUri;
 
     @AfterEach
@@ -56,16 +52,10 @@ class OrdemDeServicoResourceIT {
     public static final String ordemDeServicoId = "2b2276e8-fa72-4f4c-a3b0-2c5b1bf427ef";
 
     @Test
-    @RunOnVertxContext
-    void deveAcompanharComSucessoTest(TransactionalUniAsserter asserter) {
-        var token = new AtomicReference<String>();
-        var id = UUID.fromString(ordemDeServicoId);
-
-        asserter.execute(() -> gerarActionToken(ActionTokenAction.ACOMPANHAR, id).invoke(token::set));
-        asserter.execute(() ->
-                executarGetComResposta("/ordem-de-servico/" + ordemDeServicoId + "/acompanhar?actionToken=" + token.get(), 200)
-                        .invoke(responseBody ->
-                                Assertions.assertTrue(responseBody.contains(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO.name()))));
+    void naoDeveExporRotaLegadaDeAcompanhamento() {
+        given()
+                .when().get("/ordem-de-servico/" + ordemDeServicoId + "/acompanhar")
+                .then().statusCode(404);
     }
 
     @Test
@@ -532,22 +522,6 @@ class OrdemDeServicoResourceIT {
 
     private Uni<Void> executarPostSemBloquear(String path, Object body, TipoDePapel papel) {
         return executarPostComResposta(path, body, papel, 204).replaceWithVoid();
-    }
-
-    private Uni<String> gerarActionToken(ActionTokenAction action, UUID ordemDeServicoId) {
-        return Uni.createFrom().completionStage(() ->
-                actionTokenService.gerar(action, ordemDeServicoId, "cliente@email.com"));
-    }
-
-    private Uni<String> executarGetComResposta(String path, int expectedStatusCode) {
-        var client = vertx.createHttpClient();
-
-        return client.request(HttpMethod.GET, baseUri.getPort(), baseUri.getHost(), path)
-                .chain(request -> request.send())
-                .invoke(response -> Assertions.assertEquals(expectedStatusCode, response.statusCode()))
-                .chain(HttpClientResponse::body)
-                .map(Buffer::toString)
-                .call(_ -> client.close());
     }
 
     private Uni<String> executarPostComResposta(String path, Object body, TipoDePapel papel, int expectedStatusCode) {
