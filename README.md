@@ -69,6 +69,7 @@ Componentes principais:
 - `gestao_de_pecas`: catálogo de peças e serviços, além do controle de estoque
 - `common`: contratos compartilhados e componentes web reutilizados
 - integrações de plataforma: PostgreSQL reativo, JWT, notificação serverless e métricas
+- observabilidade vendor-neutral: logs JSON, OpenTelemetry, health probes HTTP e métricas Micrometer
 
 ```mermaid
 flowchart LR
@@ -85,7 +86,43 @@ flowchart LR
     ATD --> NOTIF[Lambda de Notificação]
     API --> JWT[JWT / Autenticação]
     API --> METRICS[Métricas Prometheus]
+    API --> TRACE[OpenTelemetry]
 ```
+
+## Observabilidade
+
+Esta fase prepara o serviço para qualquer backend observability compatível com OTLP, sem dependência direta de vendor.
+
+- `service.name=oficina-app`
+- `service.namespace=oficina`
+- `deployment.environment=lab` por padrão
+- logs estruturados em JSON com `request_id`, `trace_id` e `span_id` quando houver contexto
+- tracing distribuído com OpenTelemetry para entrada HTTP e integração de notificação
+- métricas de negócio:
+  - `os_created_total`
+  - `os_status_transition_total`
+  - `os_status_duration_ms`
+  - `integration_failures_total`
+  - `integration_latency_ms`
+- métricas técnicas em `GET /q/metrics`
+- probes internas:
+  - `GET /q/health/live`
+  - `GET /q/health/ready`
+
+Env vars padronizadas:
+
+- `OTEL_SERVICE_NAME`
+- `OTEL_RESOURCE_ATTRIBUTES`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`
+- `OTEL_EXPORTER_OTLP_PROTOCOL`
+- `OTEL_TRACES_EXPORTER`
+- `OTEL_METRICS_EXPORTER`
+- `OTEL_LOGS_EXPORTER`
+- `OFICINA_OBSERVABILITY_ENABLED`
+- `OFICINA_OBSERVABILITY_JSON_LOGS_ENABLED`
+- `OFICINA_OBSERVABILITY_METRICS_ENABLED`
+- `OFICINA_OBSERVABILITY_TRACING_ENABLED`
+- `DEPLOYMENT_ENVIRONMENT`
 
 ## Pré-requisitos
 

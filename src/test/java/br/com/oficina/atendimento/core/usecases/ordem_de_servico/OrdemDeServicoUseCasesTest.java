@@ -23,6 +23,7 @@ import br.com.oficina.atendimento.core.interfaces.sender.EstadoDaOrdemDeServicoS
 import br.com.oficina.atendimento.core.interfaces.sender.OrcamentoSender;
 import br.com.oficina.atendimento.interfaces.presenters.IdentificadorOrdemDeServicoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.ListarOrdemDeServicoPresenterAdapter;
+import br.com.oficina.common.framework.observability.AppObservability;
 import br.com.oficina.common.PageResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +46,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -174,6 +176,50 @@ class OrdemDeServicoUseCasesTest {
         verify(catalogoGateway).buscaServicoPorId(11L);
         verify(catalogoGateway).buscaPecaPorId(10L);
         verify(estadoSender).enviar(any());
+    }
+
+    @Test
+    void criarOrdemDeServico_deveRegistrarMetricaDeCriacao() {
+        var osGateway = mock(OrdemDeServicoGateway.class);
+        var clienteGateway = mock(ClienteGateway.class);
+        var veiculoGateway = mock(VeiculoGateway.class);
+        var presenter = mock(OrdemDeServicoPresenter.class);
+        var observability = mock(AppObservability.class);
+        when(clienteGateway.buscarPorDocumento(any())).thenReturn(CompletableFuture.completedFuture(new Cliente(1L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"))));
+        when(veiculoGateway.buscarPorPlaca(any())).thenReturn(CompletableFuture.completedFuture(
+                new Veiculo(2L, new PlacaDeVeiculo("ABC1234"), new MarcaDeVeiculo("marca"), new ModeloDeVeiculo("modelo"), 2020)));
+        when(osGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(null));
+        var useCase = new CriarOrdemDeServicoUseCase(osGateway, clienteGateway, veiculoGateway, presenter, observability);
+
+        useCase.executar(new CriarOrdemDeServicoUseCase.Command("52998224725", "ABC1234")).join();
+
+        verify(observability).onOrderCreated(any(), eq(TipoDeEstadoDaOrdemDeServico.RECEBIDA));
+        verify(observability, never()).onOrderTransition(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void transicaoDeEstado_deveRegistrarMudancaDeStatus() {
+        var gateway = mock(OrdemDeServicoGateway.class);
+        var estadoSender = mock(EstadoDaOrdemDeServicoSender.class);
+        var observability = mock(AppObservability.class);
+        when(estadoSender.enviar(any())).thenReturn(CompletableFuture.completedFuture(null));
+
+        var os = osEmEstado(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO);
+        doAnswer(invocation -> {
+            Consumer<OrdemDeServico> atualizacao = invocation.getArgument(1);
+            atualizacao.accept(os);
+            return CompletableFuture.completedFuture(null);
+        }).when(gateway).buscaSimplesParaAtualizar(eq(os.id()), any());
+
+        var transicaoService = new TransicaoDeEstadoDaOrdemDeServicoService(gateway, estadoSender, observability);
+        new AprovarOrdemDeServicoUseCase(transicaoService).executar(new AprovarOrdemDeServicoUseCase.Command(os.id())).join();
+
+        verify(observability).onOrderTransition(
+                eq(os.id()),
+                eq(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO),
+                eq(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO),
+                any(),
+                any());
     }
 
     @Test

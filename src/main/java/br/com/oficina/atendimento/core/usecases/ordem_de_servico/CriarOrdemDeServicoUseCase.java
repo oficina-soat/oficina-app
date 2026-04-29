@@ -8,6 +8,7 @@ import br.com.oficina.atendimento.core.interfaces.gateway.OrdemDeServicoGateway;
 import br.com.oficina.atendimento.core.interfaces.gateway.VeiculoGateway;
 import br.com.oficina.atendimento.core.interfaces.presenter.OrdemDeServicoPresenter;
 import br.com.oficina.atendimento.core.interfaces.presenter.dto.OrdemDeServicoDTO;
+import br.com.oficina.common.framework.observability.AppObservability;
 
 import java.util.concurrent.CompletableFuture;
 
@@ -17,15 +18,25 @@ public class CriarOrdemDeServicoUseCase {
     private final VeiculoGateway veiculoGateway;
     private final ClienteGateway clienteGateway;
     private final OrdemDeServicoPresenter ordemDeServicoPresenter;
+    private final AppObservability appObservability;
 
     public CriarOrdemDeServicoUseCase(OrdemDeServicoGateway ordemDeServicoGateway,
                                       ClienteGateway clienteGateway,
                                       VeiculoGateway veiculoGateway,
                                       OrdemDeServicoPresenter ordemDeServicoPresenter) {
+        this(ordemDeServicoGateway, clienteGateway, veiculoGateway, ordemDeServicoPresenter, AppObservability.noop());
+    }
+
+    public CriarOrdemDeServicoUseCase(OrdemDeServicoGateway ordemDeServicoGateway,
+                                      ClienteGateway clienteGateway,
+                                      VeiculoGateway veiculoGateway,
+                                      OrdemDeServicoPresenter ordemDeServicoPresenter,
+                                      AppObservability appObservability) {
         this.ordemDeServicoGateway = ordemDeServicoGateway;
         this.clienteGateway = clienteGateway;
         this.veiculoGateway = veiculoGateway;
         this.ordemDeServicoPresenter = ordemDeServicoPresenter;
+        this.appObservability = appObservability;
     }
 
     public CompletableFuture<Void> executar(Command command) {
@@ -38,7 +49,10 @@ public class CriarOrdemDeServicoUseCase {
                                     cliente.id(),
                                     veiculo.id());
                             return ordemDeServicoGateway.adicionar(ordemDeServico)
-                                    .thenAccept(_ -> ordemDeServicoPresenter.present(OrdemDeServicoDTO.fromDomain(ordemDeServico)));
+                                    .thenAccept(_ -> {
+                                        appObservability.onOrderCreated(ordemDeServico.id(), ordemDeServico.estadoDaOrdemDeServico());
+                                        ordemDeServicoPresenter.present(OrdemDeServicoDTO.fromDomain(ordemDeServico));
+                                    });
                         }));
     }
 

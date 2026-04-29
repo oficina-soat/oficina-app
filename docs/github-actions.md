@@ -118,6 +118,17 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `OFICINA_AUTH_JWKS_URI`: JWKS ou chave pública usada para validar access tokens; quando vazio e `OFICINA_AUTH_ISSUER` for HTTP(S), o deploy usa `<issuer>/.well-known/jwks.json`
 - `OFICINA_AUTH_FORCE_LEGACY`: default `false`; quando `true`, preserva explicitamente o modo legado `oficina-api` + `file:/jwt/publicKey.pem`
 - `OFICINA_NOTIFICACAO_BASE_URL`: opcional; quando ausente, o app reutiliza o host descoberto de `OFICINA_AUTH_ISSUER`
+- `OFICINA_OBSERVABILITY_ENABLED`: default `true`
+- `OFICINA_OBSERVABILITY_JSON_LOGS_ENABLED`: default `true`
+- `OFICINA_OBSERVABILITY_METRICS_ENABLED`: default `true`
+- `OFICINA_OBSERVABILITY_TRACING_ENABLED`: default `true`
+- `OTEL_SERVICE_NAME`: default `oficina-app`
+- `OTEL_RESOURCE_ATTRIBUTES`: default `service.namespace=oficina,deployment.environment=lab`
+- `OTEL_EXPORTER_OTLP_ENDPOINT`: default vazio nesta fase
+- `OTEL_EXPORTER_OTLP_PROTOCOL`: default `grpc`
+- `OTEL_TRACES_EXPORTER`: default `none`
+- `OTEL_METRICS_EXPORTER`: default `none`
+- `OTEL_LOGS_EXPORTER`: default `none`
 
 ## Redeploy manual
 

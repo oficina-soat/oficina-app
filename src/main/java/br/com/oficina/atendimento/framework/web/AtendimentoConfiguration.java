@@ -54,6 +54,7 @@ import br.com.oficina.atendimento.interfaces.presenters.MagicLinkConfirmacaoPres
 import br.com.oficina.atendimento.interfaces.presenters.MagicLinkResultadoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.OrcamentoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.VeiculoPresenterAdapter;
+import br.com.oficina.common.framework.observability.AppObservability;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.enterprise.inject.Produces;
@@ -104,14 +105,28 @@ public class AtendimentoConfiguration {
                                                                               VeiculoGateway veiculoGateway,
                                                                               CatalogoGateway catalogoGateway,
                                                                               IdentificadorOrdemDeServicoPresenterAdapter identificadorOrdemDeServicoPresenterAdapter,
-                                                                              OrcamentoPresenterAdapter orcamentoPresenterAdapter) {
+                                                                              OrcamentoPresenterAdapter orcamentoPresenterAdapter,
+                                                                              AppObservability appObservability) {
         var transicaoDeEstadoDaOrdemDeServicoService = new TransicaoDeEstadoDaOrdemDeServicoService(
                 ordemDeServicoGateway,
-                estadoDaOrdemDeServicoSender);
+                estadoDaOrdemDeServicoSender,
+                appObservability);
         return new OrdemDeServicoCommandController(
-                new AbrirOrdemDeServicoCompletaUseCase(ordemDeServicoGateway, clienteGateway, veiculoGateway, catalogoGateway, identificadorOrdemDeServicoPresenterAdapter, transicaoDeEstadoDaOrdemDeServicoService),
+                new AbrirOrdemDeServicoCompletaUseCase(
+                        ordemDeServicoGateway,
+                        clienteGateway,
+                        veiculoGateway,
+                        catalogoGateway,
+                        identificadorOrdemDeServicoPresenterAdapter,
+                        transicaoDeEstadoDaOrdemDeServicoService,
+                        appObservability),
                 new AprovarOrdemDeServicoUseCase(transicaoDeEstadoDaOrdemDeServicoService),
-                new CriarOrdemDeServicoUseCase(ordemDeServicoGateway, clienteGateway, veiculoGateway, identificadorOrdemDeServicoPresenterAdapter),
+                new CriarOrdemDeServicoUseCase(
+                        ordemDeServicoGateway,
+                        clienteGateway,
+                        veiculoGateway,
+                        identificadorOrdemDeServicoPresenterAdapter,
+                        appObservability),
                 new EntregarOrdemDeServicoUseCase(transicaoDeEstadoDaOrdemDeServicoService),
                 new FinalizarDiagnosticoUseCase(transicaoDeEstadoDaOrdemDeServicoService, estoqueGateway, clienteGateway, orcamentoPresenterAdapter, orcamentoSender),
                 new FinalizarOrdemDeServicoUseCase(transicaoDeEstadoDaOrdemDeServicoService),
@@ -139,10 +154,12 @@ public class AtendimentoConfiguration {
                                                                                   AcompanharOrdemDeServicoPresenterAdapter acompanharOrdemDeServicoPresenterAdapter,
                                                                                   MagicLinkAcompanhamentoPresenterAdapter magicLinkAcompanhamentoPresenterAdapter,
                                                                                   MagicLinkConfirmacaoPresenterAdapter magicLinkConfirmacaoPresenterAdapter,
-                                                                                  MagicLinkResultadoPresenterAdapter magicLinkResultadoPresenterAdapter) {
+                                                                                  MagicLinkResultadoPresenterAdapter magicLinkResultadoPresenterAdapter,
+                                                                                  AppObservability appObservability) {
         var transicaoDeEstadoDaOrdemDeServicoService = new TransicaoDeEstadoDaOrdemDeServicoService(
                 ordemDeServicoGateway,
-                estadoDaOrdemDeServicoSender);
+                estadoDaOrdemDeServicoSender,
+                appObservability);
         return new OrdemDeServicoMagicLinkController(
                 new ValidarMagicLinkUseCase(actionTokenGateway),
                 new AcompanharOrdemDeServicoUseCase(ordemDeServicoGateway, acompanharOrdemDeServicoPresenterAdapter),
