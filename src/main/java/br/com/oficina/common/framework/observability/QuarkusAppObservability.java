@@ -100,6 +100,7 @@ public class QuarkusAppObservability implements AppObservability {
         fields.put("ordem_servico_status", statusNovo.name());
         fields.put("ordem_servico_status_anterior", statusAnterior.name());
         fields.put("ordem_servico_status_novo", statusNovo.name());
+        fields.put("ordem_servico_status_duration_ms", durationMs);
         try (var ignored = ObservabilityMdcScope.with(fields)) {
             LOG.info("Transicao de ordem de servico concluida");
         }
@@ -159,6 +160,10 @@ public class QuarkusAppObservability implements AppObservability {
         fields.put("integration.name", integration);
         fields.put("integration.operation", operation);
         fields.put("integration.status", "failure");
+        fields.put("integration_name", integration);
+        fields.put("integration_operation", operation);
+        fields.put("integration_status", "failure");
+        fields.put("integration_failure_type", failureType);
         fields.put("error.type", throwable.getClass().getSimpleName());
         fields.put("error.message", throwable.getMessage());
         fields.putAll(ObservabilityMdcScope.currentTraceContextFields());
