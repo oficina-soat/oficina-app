@@ -230,7 +230,7 @@ Build, publicação e deploy manual de uma nova versão fechada em `main`:
 Actions -> Build Deploy App Lab -> Run workflow
 ```
 
-Esse workflow valida a aplicação com `./mvnw verify -DskipITs=false`, publica a imagem versionada no ECR, cria a release e faz o rollout no EKS. Se a release apontada pelo `project.version` atual já existir, o workflow incrementa automaticamente a próxima versão de patch e, quando `main` exigir mudanças via pull request, abre um PR automático de bump para `main`. Depois do merge desse PR, execute o workflow novamente para publicar e fazer o deploy.
+Esse workflow decide a execução em três etapas: verifica se a release atual existe, verifica se a imagem versionada existe no ECR e verifica se o Deployment no EKS já está na imagem esperada. Com isso, ele só faz build quando a imagem ainda não existe, só cria release quando ela ainda não existe e só faz deploy quando o EKS ainda não está na versão esperada. Se a release existir mas a imagem tiver sumido do ECR, o workflow não reconstrói a mesma versão: ele abre um PR automático de bump para `main` e, depois do merge, deve ser executado novamente para publicar e fazer o deploy.
 
 Redeploy da imagem versionada já fechada em `main`:
 

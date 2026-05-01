@@ -13,7 +13,7 @@ Workflows disponíveis:
 - `push` em `develop`: executa testes unitários e de integração e abre o PR `develop -> main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
 - `push` em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
 - `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes; não publica imagem nem executa deploy
-- `workflow_dispatch` em `build-deploy-app-lab.yml`: gera uma nova release fechada em `main`, publica a imagem versionada no ECR e executa o deploy
+- `workflow_dispatch` em `build-deploy-app-lab.yml`: avalia release, imagem no ECR e estado do Deployment no EKS para decidir se precisa buildar, criar release e/ou fazer deploy
 - `workflow_dispatch` em `redeploy-app-lab.yml`: redeploy manual da imagem da release já fechada, somente quando a branch selecionada for `main`
 
 Os workflows que alteram a aplicação no cluster compartilham o grupo de `concurrency` `lab-app`, evitando deploys simultâneos do app.
@@ -37,7 +37,14 @@ No fluxo automático, os testes unitários e de integração rodam antes, no `pu
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
-O workflow manual `Build Deploy App Lab` continua respeitando a regra de não reutilizar release publicada. Se a release `v<project.version>` já existir, ele incrementa automaticamente a próxima versão de patch. Quando a branch `main` aceitar push direto, o workflow segue publicando normalmente; quando `main` exigir mudanças via pull request, ele abre um PR automático de bump de versão e encerra a execução. Depois do merge desse PR, o workflow deve ser executado novamente para publicar a nova release.
+O workflow manual `Build Deploy App Lab` segue esta matriz de decisão:
+
+- release ausente + imagem ausente no ECR: valida, faz build, publica a imagem, cria a release e faz deploy se o EKS ainda não estiver nessa versão
+- release ausente + imagem presente no ECR: cria a release e faz deploy apenas se o EKS ainda não estiver nessa versão
+- release presente + imagem presente no ECR: faz deploy apenas se o EKS ainda não estiver nessa versão
+- release presente + imagem ausente no ECR: não reutiliza a mesma versão; abre um PR automático de bump de versão e encerra a execução
+
+No último caso, depois do merge do PR automático em `main`, o workflow deve ser executado novamente para publicar a nova release.
 
 ## Integração com os repos de infra
 
