@@ -168,7 +168,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Open pull request to main
+      - name: Open or update pull request to main
         shell: bash
         env:
           BASE_BRANCH: main
@@ -209,16 +209,19 @@ jobs:
             "- Commit validado: ${GITHUB_SHA}" \
             "${deploy_note}")"
 
-          existing_pr_url="$(gh pr list \
+          existing_pr_number="$(gh pr list \
             --repo "${GITHUB_REPOSITORY}" \
             --base "${BASE_BRANCH}" \
             --head "${head_ref}" \
             --state open \
-            --json url \
-            --jq '.[0].url // empty')"
+            --json number \
+            --jq '.[0].number // empty')"
 
-          if [[ -n "${existing_pr_url}" ]]; then
-            echo "Pull request ja existente: ${existing_pr_url}"
+          if [[ -n "${existing_pr_number}" ]]; then
+            gh pr edit "${existing_pr_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}"
             exit 0
           fi
 
@@ -238,16 +241,19 @@ jobs:
             exit 0
           fi
 
-          existing_pr_url="$(gh pr list \
+          existing_pr_number="$(gh pr list \
             --repo "${GITHUB_REPOSITORY}" \
             --base "${BASE_BRANCH}" \
             --head "${head_ref}" \
             --state open \
-            --json url \
-            --jq '.[0].url // empty')"
+            --json number \
+            --jq '.[0].number // empty')"
 
-          if [[ -n "${existing_pr_url}" ]]; then
-            echo "Pull request ja existente: ${existing_pr_url}"
+          if [[ -n "${existing_pr_number}" ]]; then
+            gh pr edit "${existing_pr_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}"
             exit 0
           fi
 
