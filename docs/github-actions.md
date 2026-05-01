@@ -54,7 +54,7 @@ Em todos os deploys, `scripts/deploy-k8s.sh` reaplica os manifests mínimos em `
 - ConfigMap `oficina-app-config`
 - secret `oficina-jwt-keys`
 
-O secret `oficina-database-env` continua sendo responsabilidade do repo `oficina-infra-db`. Por padrão, o deploy deste repo falha antes do rollout quando esse secret ainda não existe, porque a aplicação precisa das variáveis de datasource para iniciar.
+O secret `oficina-database-env` continua seguindo o contrato do `oficina-infra-db`, mas o deploy deste repo tenta recriá-lo automaticamente a partir do AWS Secrets Manager quando ele estiver ausente no cluster. O identificador padrão é `K8S_DATABASE_SECRET_ID=oficina/lab/database/app`. Se esse secret AWS não existir ou usar outro nome, o deploy falha antes do rollout porque a aplicação precisa das variáveis de datasource para iniciar.
 
 O secret Kubernetes `oficina-jwt-keys` é derivado do AWS Secrets Manager por padrão. O deploy usa o secret `oficina/lab/jwt`; se ele ainda não existir, cria um par RSA 2048 bits e salva o JSON com os campos `privateKeyPem` e `publicKeyPem`. Em deploys seguintes, o mesmo par é reutilizado e reaplicado no Kubernetes.
 
@@ -107,6 +107,7 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `BOOTSTRAP_K8S_APP_IF_MISSING`: default `true`
 - `K8S_APP_OVERLAY`: default `k8s/overlays/lab`
 - `K8S_DB_SECRET_NAME`: default `oficina-database-env`
+- `K8S_DATABASE_SECRET_ID`: default `oficina/lab/database/app`; secret do AWS Secrets Manager usado para recriar `oficina-database-env` automaticamente quando ele estiver ausente no cluster
 - `REQUIRE_K8S_DB_SECRET`: default `true`; falha antes do rollout quando o secret de banco ainda não existe
 - `K8S_JWT_SECRET_NAME`: default `oficina-jwt-keys`
 - `JWT_SECRET_SOURCE`: default `aws-secrets-manager`; também aceita `local-files` para uso manual

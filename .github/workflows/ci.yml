@@ -407,6 +407,7 @@ jobs:
       BOOTSTRAP_K8S_APP_IF_MISSING: ${{ vars.BOOTSTRAP_K8S_APP_IF_MISSING || 'true' }}
       K8S_APP_OVERLAY: ${{ vars.K8S_APP_OVERLAY || 'k8s/overlays/lab' }}
       K8S_DB_SECRET_NAME: ${{ vars.K8S_DB_SECRET_NAME || 'oficina-database-env' }}
+      K8S_DATABASE_SECRET_ID: ${{ vars.K8S_DATABASE_SECRET_ID || 'oficina/lab/database/app' }}
       K8S_JWT_SECRET_NAME: ${{ vars.K8S_JWT_SECRET_NAME || 'oficina-jwt-keys' }}
       REQUIRE_K8S_DB_SECRET: ${{ vars.REQUIRE_K8S_DB_SECRET || 'true' }}
       JWT_SECRET_SOURCE: ${{ vars.JWT_SECRET_SOURCE || 'aws-secrets-manager' }}

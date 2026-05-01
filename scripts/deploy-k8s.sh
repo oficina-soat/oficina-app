@@ -12,6 +12,7 @@ UPDATE_KUBECONFIG="${UPDATE_KUBECONFIG:-true}"
 BOOTSTRAP_K8S_APP_IF_MISSING="${BOOTSTRAP_K8S_APP_IF_MISSING:-true}"
 K8S_APP_OVERLAY="${K8S_APP_OVERLAY:-k8s/overlays/lab}"
 K8S_DB_SECRET_NAME="${K8S_DB_SECRET_NAME:-oficina-database-env}"
+K8S_DATABASE_SECRET_ID="${K8S_DATABASE_SECRET_ID:-oficina/lab/database/app}"
 REQUIRE_K8S_DB_SECRET="${REQUIRE_K8S_DB_SECRET:-true}"
 K8S_JWT_SECRET_NAME="${K8S_JWT_SECRET_NAME:-oficina-jwt-keys}"
 JWT_SECRET_SOURCE="${JWT_SECRET_SOURCE:-aws-secrets-manager}"
@@ -170,6 +171,103 @@ secret_exists() {
   kubectl get secret "${secret_name}" --namespace "${K8S_NAMESPACE}" >/dev/null 2>&1
 }
 
+aws_secret_exists() {
+  local secret_id="$1"
+  local error_file
+
+  error_file="$(mktemp)"
+  if aws --region "${AWS_REGION}" secretsmanager describe-secret \
+    --secret-id "${secret_id}" >/dev/null 2>"${error_file}"; then
+    rm -f "${error_file}"
+    return 0
+  fi
+
+  rm -f "${error_file}"
+  return 1
+}
+
+read_aws_secret_json() {
+  local secret_id="$1"
+
+  aws --region "${AWS_REGION}" secretsmanager get-secret-value \
+    --secret-id "${secret_id}" \
+    --query SecretString \
+    --output text
+}
+
+read_secret_field() {
+  local secret_json="$1"
+  local field_name="$2"
+
+  jq -er --arg field_name "${field_name}" '.[$field_name] // empty' <<<"${secret_json}" 2>/dev/null || true
+}
+
+apply_db_secret_from_aws() {
+  local secret_json=""
+  local db_host=""
+  local db_port=""
+  local db_name=""
+  local db_user=""
+  local db_password=""
+  local db_sslmode=""
+
+  require_cmd aws
+  require_cmd jq
+  require_non_empty "${K8S_DATABASE_SECRET_ID}" "K8S_DATABASE_SECRET_ID"
+
+  if ! aws_secret_exists "${K8S_DATABASE_SECRET_ID}"; then
+    return 1
+  fi
+
+  secret_json="$(read_aws_secret_json "${K8S_DATABASE_SECRET_ID}")"
+  if [[ -z "${secret_json}" ]]; then
+    echo "Secret ${K8S_DATABASE_SECRET_ID} nao possui SecretString legivel." >&2
+    exit 1
+  fi
+
+  db_host="$(read_secret_field "${secret_json}" host)"
+  db_port="$(read_secret_field "${secret_json}" port)"
+  db_name="$(read_secret_field "${secret_json}" dbname)"
+  db_user="$(read_secret_field "${secret_json}" username)"
+  db_password="$(read_secret_field "${secret_json}" password)"
+  db_sslmode="$(read_secret_field "${secret_json}" sslmode)"
+
+  require_non_empty "${db_host}" "db_host"
+  require_non_empty "${db_port}" "db_port"
+  require_non_empty "${db_name}" "db_name"
+  require_non_empty "${db_user}" "db_user"
+  require_non_empty "${db_password}" "db_password"
+
+  if [[ -z "${db_sslmode}" ]]; then
+    db_sslmode="require"
+  fi
+
+  log "Aplicando secret ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME} a partir do Secrets Manager ${K8S_DATABASE_SECRET_ID}"
+  kubectl apply -f - <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ${K8S_DB_SECRET_NAME}
+  namespace: ${K8S_NAMESPACE}
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: oficina
+type: Opaque
+stringData:
+  POSTGRES_DB: ${db_name}
+  POSTGRES_USER: ${db_user}
+  POSTGRES_PASSWORD: ${db_password}
+  POSTGRES_SSLMODE: ${db_sslmode}
+  DB_SSLMODE: ${db_sslmode}
+  QUARKUS_DATASOURCE_DB_KIND: postgresql
+  QUARKUS_DATASOURCE_USERNAME: ${db_user}
+  QUARKUS_DATASOURCE_PASSWORD: ${db_password}
+  QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://${db_host}:${db_port}/${db_name}?sslmode=${db_sslmode}
+  QUARKUS_DATASOURCE_REACTIVE_POSTGRESQL_SSL_MODE: ${db_sslmode}
+EOF
+}
+
 dump_rollout_diagnostics() {
   local selector="app.kubernetes.io/name=${K8S_DEPLOYMENT_NAME}"
 
@@ -193,18 +291,26 @@ ensure_db_secret() {
     return
   fi
 
+  if apply_db_secret_from_aws; then
+    return
+  fi
+
   if [[ "${REQUIRE_K8S_DB_SECRET}" == "true" ]]; then
     cat >&2 <<EOF
 Secret obrigatorio ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME} nao encontrado.
 
-Crie o secret pelo repo oficina-infra-db antes de publicar o app:
+O deploy tentou recriar o secret a partir do Secrets Manager ${K8S_DATABASE_SECRET_ID}, mas nao encontrou um secret AWS legivel com esse identificador.
+
+Crie ou reaplique o secret pelo repo oficina-infra-db antes de publicar o app:
   Actions -> Deploy Lab -> Run workflow com APPLY_K8S_SECRET=true
 
 Ou execute manualmente no repo oficina-infra-db:
-  DB_SECRET_ARN=<secret-da-aplicacao> \\
+  DB_SECRET_ARN=${K8S_DATABASE_SECRET_ID} \\
   EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME} \\
   UPDATE_KUBECONFIG=true \\
   ./scripts/apply-k8s-secret.sh
+
+Se o secret existir no AWS Secrets Manager com outro nome, informe K8S_DATABASE_SECRET_ID no GitHub Environment 'lab'.
 
 Para permitir deploy sem banco, configure REQUIRE_K8S_DB_SECRET=false.
 EOF
