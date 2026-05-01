@@ -90,15 +90,12 @@ jobs:
           fi
 
           if grep -q 'ImageNotFoundException' "${error_file}"; then
-            cat >&2 <<EOF
-Imagem nao encontrada no ECR: ${{ steps.image.outputs.repository_name }}:${{ steps.image.outputs.image_tag }}
-
-Esse workflow so reaplica uma imagem ja publicada.
-Se a release existe mas a imagem nao esta mais no ECR, execute:
-- Actions -> Build Deploy App Lab -> Run workflow
-
-O workflow manual vai incrementar a proxima versao no pom.xml, publicar uma imagem nova e fazer o deploy.
-EOF
+            printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+              "Imagem nao encontrada no ECR: ${{ steps.image.outputs.repository_name }}:${{ steps.image.outputs.image_tag }}" \
+              "Esse workflow so reaplica uma imagem ja publicada." \
+              "Se a release existe mas a imagem nao esta mais no ECR, execute:" \
+              "- Actions -> Build Deploy App Lab -> Run workflow" \
+              "O workflow manual vai aplicar a regra de versionamento, publicar uma imagem nova quando permitido e fazer o deploy." >&2
           else
             cat "${error_file}" >&2
           fi
