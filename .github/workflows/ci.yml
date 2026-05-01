@@ -13,6 +13,9 @@ concurrency:
 
 jobs:
   detect_app_version:
+    if: >
+      github.event_name != 'push' ||
+      !contains(github.event.head_commit.message || '', '[manual-build-deploy]')
     name: detect-app-version
     runs-on: ubuntu-latest
     permissions:
@@ -109,6 +112,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: detect_app_version
     if: >
+      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[manual-build-deploy]')) &&
       (github.ref_name == 'develop' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout
@@ -134,6 +138,7 @@ jobs:
       - detect_app_version
       - build_and_unit_tests
     if: >
+      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[manual-build-deploy]')) &&
       (github.ref_name == 'develop' || github.event_name == 'workflow_dispatch')
     steps:
       - name: Checkout
@@ -159,6 +164,7 @@ jobs:
       - detect_app_version
       - integration_tests
     if: >
+      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[manual-build-deploy]')) &&
       github.event_name == 'push' &&
       github.ref_name == 'develop'
     permissions:
@@ -267,6 +273,7 @@ jobs:
       - detect_app_version
       - integration_tests
     if: >
+      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[manual-build-deploy]')) &&
       always() &&
       github.event_name == 'push' &&
       github.ref_name == 'main' &&
@@ -379,6 +386,7 @@ jobs:
       - detect_app_version
       - build_publish_release_image
     if: >
+      (github.event_name != 'push' || !contains(github.event.head_commit.message || '', '[manual-build-deploy]')) &&
       always() &&
       github.event_name == 'push' &&
       github.ref_name == 'main' &&
