@@ -5,6 +5,7 @@ O repositório usa o GitHub Environment `lab` e segue o ciclo de versionamento d
 Workflows disponíveis:
 
 - `./.github/workflows/ci.yml`
+- `./.github/workflows/build-deploy-app-lab.yml`
 - `./.github/workflows/redeploy-app-lab.yml`
 
 ## Gatilho
@@ -12,6 +13,7 @@ Workflows disponíveis:
 - `push` em `develop`: executa testes unitários e de integração e abre o PR `develop -> main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
 - `push` em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
 - `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes; não publica imagem nem executa deploy
+- `workflow_dispatch` em `build-deploy-app-lab.yml`: gera uma nova release fechada em `main`, publica a imagem versionada no ECR e executa o deploy
 - `workflow_dispatch` em `redeploy-app-lab.yml`: redeploy manual da imagem da release já fechada, somente quando a branch selecionada for `main`
 
 Os workflows que alteram a aplicação no cluster compartilham o grupo de `concurrency` `lab-app`, evitando deploys simultâneos do app.
@@ -34,6 +36,8 @@ O GitHub Release é a origem oficial da versão fechada do app. Em `main`, quand
 No fluxo automático, os testes unitários e de integração rodam antes, no `push` em `develop`, e o PR só é criado se esses testes passarem, houver diferença entre `develop` e `main`, e ainda não existir PR aberto. Quando o PR é aceito, o `push` gerado em `main` começa no build da imagem somente se a release da versão atual ainda não existir.
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
+
+O workflow manual `Build Deploy App Lab` segue exatamente a mesma regra: ele só publica quando `project.version` aponta para uma release nova. Se a release `v<project.version>` já existir, o workflow falha cedo e exige incremento de versão antes de outro build publicado.
 
 ## Integração com os repos de infra
 
@@ -141,6 +145,8 @@ O workflow executa:
 - rollout do Deployment `oficina-app`
 
 Selecione a branch `main` ao executar o workflow. Em outras branches, os jobs ficam bloqueados por guarda explícita.
+
+Se o laboratório tiver sido recriado e o repositório ECR ainda não existir, esse workflow falha na resolução da imagem. Nesse caso, primeiro recrie ou reutilize o ECR pelo `../oficina-infra-k8s`, ou rode `Build Deploy App Lab` depois de incrementar `project.version`.
 
 ## Validação local
 
