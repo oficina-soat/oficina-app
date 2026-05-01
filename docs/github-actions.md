@@ -37,7 +37,7 @@ No fluxo automático, os testes unitários e de integração rodam antes, no `pu
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
-O workflow manual `Build Deploy App Lab` continua respeitando a regra de não reutilizar release publicada. Se a release `v<project.version>` já existir, ele incrementa automaticamente a próxima versão de patch no `pom.xml`, cria um commit em `main` e publica a nova release com esse valor atualizado.
+O workflow manual `Build Deploy App Lab` continua respeitando a regra de não reutilizar release publicada. Se a release `v<project.version>` já existir, ele incrementa automaticamente a próxima versão de patch. Quando a branch `main` aceitar push direto, o workflow segue publicando normalmente; quando `main` exigir mudanças via pull request, ele abre um PR automático de bump de versão e encerra a execução. Depois do merge desse PR, o workflow deve ser executado novamente para publicar a nova release.
 
 ## Integração com os repos de infra
 

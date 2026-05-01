@@ -14,7 +14,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     outputs:
+      publish_ready: ${{ steps.version.outputs.publish_ready }}
+      pull_request_url: ${{ steps.version.outputs.pull_request_url }}
       commit_sha: ${{ steps.version.outputs.commit_sha }}
       current_version: ${{ steps.version.outputs.current_version }}
       image_tag: ${{ steps.version.outputs.image_tag }}
@@ -31,6 +34,69 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          open_bump_pr() {
+            local base_version="$1"
+            local target_version="$2"
+            local branch_name="automation/manual-build-deploy-v${target_version}"
+            local title="chore: incrementa versão para ${target_version}"
+            local body=""
+            local head_ref="${GITHUB_REPOSITORY_OWNER}:${branch_name}"
+            local existing_pr_number=""
+            local pr_url=""
+
+            body="$(printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+              "PR automático aberto pelo workflow Build Deploy App Lab." \
+              "- Versão atual em main: ${base_version}" \
+              "- Próxima versão necessária para publicação: ${target_version}" \
+              "- Motivo: a release v${base_version} já existe e a branch main não aceita push direto" \
+              "Depois do merge deste PR em main, execute novamente o workflow Build Deploy App Lab para publicar a nova imagem e fazer o deploy.")"
+
+            git checkout -b "${branch_name}"
+            git push --force-with-lease origin "HEAD:refs/heads/${branch_name}"
+
+            existing_pr_number="$(gh pr list \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base main \
+              --head "${head_ref}" \
+              --state open \
+              --json number \
+              --jq '.[0].number // empty')"
+
+            if [[ -n "${existing_pr_number}" ]]; then
+              gh pr edit "${existing_pr_number}" \
+                --repo "${GITHUB_REPOSITORY}" \
+                --title "${title}" \
+                --body "${body}" >/dev/null
+              pr_url="$(gh pr view "${existing_pr_number}" --repo "${GITHUB_REPOSITORY}" --json url --jq '.url')"
+            else
+              pr_url="$(gh pr create \
+                --repo "${GITHUB_REPOSITORY}" \
+                --base main \
+                --head "${branch_name}" \
+                --title "${title}" \
+                --body "${body}")"
+            fi
+
+            {
+              echo "publish_ready=false"
+              echo "pull_request_url=${pr_url}"
+              echo "commit_sha="
+              echo "current_version=${target_version}"
+              echo "image_tag=${target_version}"
+              echo "release_tag=v${target_version}"
+            } >> "${GITHUB_OUTPUT}"
+
+            cat >&2 <<EOF
+main exige mudanças via pull request.
+
+Foi aberto um PR automático para incrementar a versão:
+${pr_url}
+
+Faça o merge desse PR em main e execute novamente o workflow Build Deploy App Lab.
+EOF
+            exit 1
+          }
+
           extract_version() {
             sed -n '0,/<version>[[:space:]]*/{
               s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
@@ -81,12 +147,14 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add pom.xml
             git commit -m "chore: incrementa versão para ${current_version} [manual-build-deploy]"
-            git push origin HEAD:main
+            open_bump_pr "${original_version}" "${current_version}"
           fi
 
           commit_sha="$(git rev-parse HEAD)"
 
           {
+            echo "publish_ready=true"
+            echo "pull_request_url="
             echo "commit_sha=${commit_sha}"
             echo "current_version=${current_version}"
             echo "image_tag=${current_version}"
@@ -94,7 +162,7 @@ jobs:
           } >> "${GITHUB_OUTPUT}"
 
   verify_app:
-    if: github.ref_name == 'main'
+    if: github.ref_name == 'main' && needs.detect_app_version.outputs.publish_ready == 'true'
     name: verify-app
     runs-on: ubuntu-latest
     needs: detect_app_version
@@ -118,7 +186,7 @@ jobs:
         run: ./mvnw -B verify -DskipITs=false -DfailIfNoTests=false
 
   build_publish_release_image:
-    if: github.ref_name == 'main'
+    if: github.ref_name == 'main' && needs.detect_app_version.outputs.publish_ready == 'true'
     name: build-publish-release-image
     runs-on: ubuntu-latest
     needs:
@@ -212,7 +280,7 @@ jobs:
           if-no-files-found: error
 
   deploy_app:
-    if: github.ref_name == 'main'
+    if: github.ref_name == 'main' && needs.detect_app_version.outputs.publish_ready == 'true'
     name: deploy-app
     runs-on: ubuntu-latest
     needs:
