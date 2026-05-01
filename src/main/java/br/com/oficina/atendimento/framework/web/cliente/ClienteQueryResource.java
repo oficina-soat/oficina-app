@@ -15,6 +15,8 @@ import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.core.MediaType;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
+import java.util.List;
+
 @Tag(name = "Cliente - Consultas")
 @Path("/clientes")
 @RolesAllowed(TipoDePapelValues.ADMINISTRATIVO)
@@ -22,6 +24,15 @@ public class ClienteQueryResource {
 
     @Inject ClienteQueryController clienteQueryController;
     @Inject ClientePresenterAdapter clientePresenter;
+
+    @WithSession
+    @GET
+    @Produces(MediaType.APPLICATION_JSON)
+    @RolesAllowed({TipoDePapelValues.RECEPCIONISTA, TipoDePapelValues.ADMINISTRATIVO})
+    public Uni<List<ClienteViewModel>> list() {
+        return Uni.createFrom().completionStage(clienteQueryController.listar())
+                .replaceWith(clientePresenter::viewModels);
+    }
 
     @WithSession
     @GET

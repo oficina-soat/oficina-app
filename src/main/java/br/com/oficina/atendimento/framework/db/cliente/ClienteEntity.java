@@ -50,6 +50,10 @@ public class ClienteEntity extends PanacheEntity {
         return findById(id);
     }
 
+    public static Uni<java.util.List<ClienteEntity>> listarTodos() {
+        return find("order by id").list();
+    }
+
     public static Uni<ClienteEntity> buscaParaAtualizar(long id) {
         return findById(id, LockModeType.PESSIMISTIC_WRITE);
     }

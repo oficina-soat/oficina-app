@@ -33,8 +33,9 @@ class ListarOrdensDetalhadasHqlBuilderTest {
         assertTrue(consulta.hqlCount().contains("and os.placaDoVeiculo = :placa"));
         assertTrue(consulta.hqlCount().contains("and os.criadoEm >= :criadoDe"));
         assertTrue(consulta.hqlCount().contains("and os.criadoEm <= :criadoAte"));
-        assertTrue(consulta.hqlData().contains("left join fetch os.historicoDeEstados"));
-        assertTrue(consulta.hqlData().contains("order by os.criadoEm desc"));
+        assertTrue(consulta.hqlPage().contains("order by os.criadoEm desc"));
+        assertTrue(consulta.hqlFetchByIds().contains("left join fetch os.historicoDeEstados"));
+        assertTrue(consulta.hqlFetchByIds().contains("where os.id in :ids"));
         assertEquals(TipoDeEstadoDaOrdemDeServico.RECEBIDA.name(), consulta.countParams().get("estado"));
         assertEquals("12345678900", consulta.countParams().get("doc"));
         assertEquals("ABC1234", consulta.countParams().get("placa"));
@@ -49,7 +50,7 @@ class ListarOrdensDetalhadasHqlBuilderTest {
                 .build();
 
         assertTrue(consulta.hqlCount().contains("os.estadoAtualCodigo not in (:estadoFinalizada, :estadoEntregue)"));
-        assertTrue(consulta.hqlData().contains("when os.estadoAtualCodigo = :estadoExecucao then 0"));
+        assertTrue(consulta.hqlPage().contains("when os.estadoAtualCodigo = :estadoExecucao then 0"));
         assertEquals(TipoDeEstadoDaOrdemDeServico.FINALIZADA.name(), consulta.countParams().get("estadoFinalizada"));
         assertEquals(TipoDeEstadoDaOrdemDeServico.ENTREGUE.name(), consulta.countParams().get("estadoEntregue"));
         assertEquals(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO.name(), consulta.dataParams().get("estadoExecucao"));

@@ -4,11 +4,13 @@ import br.com.oficina.atendimento.core.entities.cliente.Cliente;
 import br.com.oficina.atendimento.core.entities.cliente.Documento;
 import br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory;
 import br.com.oficina.atendimento.core.entities.cliente.Email;
+import br.com.oficina.atendimento.core.exceptions.ClienteNaoEncontradoException;
 import br.com.oficina.atendimento.core.interfaces.gateway.ClienteGateway;
 import br.com.oficina.common.core.entities.TipoPessoa;
 import br.com.oficina.common.framework.db.pessoa.PessoaEntity;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
@@ -17,6 +19,7 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
 
     @Override public CompletableFuture<Cliente> buscarPorDocumento(Documento documento) {
         return ClienteEntity.buscarPorDocumento(documento.valor())
+                .onItem().ifNull().failWith(() -> new ClienteNaoEncontradoException(documento.valor()))
                 .map(ClienteDataSourceAdapter::toDomain)
                 .subscribeAsCompletionStage();
     }
@@ -33,7 +36,16 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
 
     @Override public CompletableFuture<Cliente> buscarPorId(long id) {
         return ClienteEntity.buscaPorId(id)
+                .onItem().ifNull().failWith(() -> new ClienteNaoEncontradoException(id))
                 .map(ClienteDataSourceAdapter::toDomain)
+                .subscribeAsCompletionStage();
+    }
+
+    @Override public CompletableFuture<List<Cliente>> listar() {
+        return ClienteEntity.listarTodos()
+                .map(clientes -> clientes.stream()
+                        .map(ClienteDataSourceAdapter::toDomain)
+                        .toList())
                 .subscribeAsCompletionStage();
     }
 

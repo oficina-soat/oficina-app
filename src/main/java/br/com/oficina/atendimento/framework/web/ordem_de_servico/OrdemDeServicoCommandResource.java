@@ -107,8 +107,9 @@ public class OrdemDeServicoCommandResource {
     @Produces(MediaType.APPLICATION_JSON)
     @Consumes(MediaType.APPLICATION_JSON)
     @RolesAllowed({TipoDePapelValues.RECEPCIONISTA, TipoDePapelValues.ADMINISTRATIVO})
-    public Uni<Void> criar(OrdemDeServicoCommandController.CriarOrdemDeServicoRequest request) {
-        return Uni.createFrom().completionStage(ordemDeServicoCommandController.criarOrdemDeServico(request));
+    public Uni<AberturaDeOrdemDeServicoViewModel> criar(OrdemDeServicoCommandController.CriarOrdemDeServicoRequest request) {
+        return Uni.createFrom().completionStage(ordemDeServicoCommandController.criarOrdemDeServico(request))
+                .replaceWith(identificadorOrdemDeServicoPresenterAdapter::viewModel);
     }
 
     @WithTransaction

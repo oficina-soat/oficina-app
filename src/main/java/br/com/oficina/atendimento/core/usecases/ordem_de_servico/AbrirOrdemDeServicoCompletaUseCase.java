@@ -16,6 +16,7 @@ import br.com.oficina.atendimento.core.interfaces.gateway.OrdemDeServicoGateway;
 import br.com.oficina.atendimento.core.interfaces.gateway.VeiculoGateway;
 import br.com.oficina.atendimento.core.interfaces.presenter.OrdemDeServicoPresenter;
 import br.com.oficina.atendimento.core.interfaces.presenter.dto.OrdemDeServicoDTO;
+import br.com.oficina.common.framework.observability.AppObservability;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -29,6 +30,7 @@ public class AbrirOrdemDeServicoCompletaUseCase {
     private final CatalogoGateway catalogoGateway;
     private final OrdemDeServicoPresenter ordemDeServicoPresenter;
     private final TransicaoDeEstadoDaOrdemDeServicoService transicaoDeEstadoDaOrdemDeServicoService;
+    private final AppObservability appObservability;
 
     public AbrirOrdemDeServicoCompletaUseCase(OrdemDeServicoGateway ordemDeServicoGateway,
                                               ClienteGateway clienteGateway,
@@ -36,12 +38,29 @@ public class AbrirOrdemDeServicoCompletaUseCase {
                                               CatalogoGateway catalogoGateway,
                                               OrdemDeServicoPresenter ordemDeServicoPresenter,
                                               TransicaoDeEstadoDaOrdemDeServicoService transicaoDeEstadoDaOrdemDeServicoService) {
+        this(ordemDeServicoGateway,
+                clienteGateway,
+                veiculoGateway,
+                catalogoGateway,
+                ordemDeServicoPresenter,
+                transicaoDeEstadoDaOrdemDeServicoService,
+                AppObservability.noop());
+    }
+
+    public AbrirOrdemDeServicoCompletaUseCase(OrdemDeServicoGateway ordemDeServicoGateway,
+                                              ClienteGateway clienteGateway,
+                                              VeiculoGateway veiculoGateway,
+                                              CatalogoGateway catalogoGateway,
+                                              OrdemDeServicoPresenter ordemDeServicoPresenter,
+                                              TransicaoDeEstadoDaOrdemDeServicoService transicaoDeEstadoDaOrdemDeServicoService,
+                                              AppObservability appObservability) {
         this.ordemDeServicoGateway = ordemDeServicoGateway;
         this.clienteGateway = clienteGateway;
         this.veiculoGateway = veiculoGateway;
         this.catalogoGateway = catalogoGateway;
         this.ordemDeServicoPresenter = ordemDeServicoPresenter;
         this.transicaoDeEstadoDaOrdemDeServicoService = transicaoDeEstadoDaOrdemDeServicoService;
+        this.appObservability = appObservability;
     }
 
     public CompletableFuture<Void> executar(Command command) {
@@ -66,6 +85,9 @@ public class AbrirOrdemDeServicoCompletaUseCase {
                         .thenCompose(ordemAberta -> incluirServicos(ordemAberta.ordemDeServico(), command.servicos())
                                 .thenCompose(_ -> incluirPecas(ordemAberta.ordemDeServico(), command.pecas()))
                                 .thenCompose(_ -> ordemDeServicoGateway.adicionar(ordemAberta.ordemDeServico()))
+                                .thenRun(() -> appObservability.onOrderCreated(
+                                        ordemAberta.ordemDeServico().id(),
+                                        TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO))
                                 .thenCompose(_ -> transicaoDeEstadoDaOrdemDeServicoService.notificarMudancaSeHouver(
                                         ordemAberta.ordemDeServico(),
                                         ordemAberta.estadoAnterior()))

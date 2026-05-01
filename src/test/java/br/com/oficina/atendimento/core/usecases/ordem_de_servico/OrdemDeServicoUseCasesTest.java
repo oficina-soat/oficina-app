@@ -23,6 +23,7 @@ import br.com.oficina.atendimento.core.interfaces.sender.EstadoDaOrdemDeServicoS
 import br.com.oficina.atendimento.core.interfaces.sender.OrcamentoSender;
 import br.com.oficina.atendimento.interfaces.presenters.IdentificadorOrdemDeServicoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.ListarOrdemDeServicoPresenterAdapter;
+import br.com.oficina.common.framework.observability.AppObservability;
 import br.com.oficina.common.PageResult;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -45,6 +46,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -56,24 +58,28 @@ class OrdemDeServicoUseCasesTest {
         var osGateway = mock(OrdemDeServicoGateway.class);
         var clienteGateway = mock(ClienteGateway.class);
         var veiculoGateway = mock(VeiculoGateway.class);
+        var presenter = mock(OrdemDeServicoPresenter.class);
         when(clienteGateway.buscarPorDocumento(any())).thenReturn(CompletableFuture.completedFuture(new Cliente(1L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"))));
         when(veiculoGateway.buscarPorPlaca(any())).thenReturn(CompletableFuture.completedFuture(
                 new Veiculo(2L, new PlacaDeVeiculo("ABC1234"), new MarcaDeVeiculo("marca"), new ModeloDeVeiculo("modelo"), 2020)));
         when(osGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(null));
-        var useCase = new CriarOrdemDeServicoUseCase(osGateway, clienteGateway, veiculoGateway);
+        var useCase = new CriarOrdemDeServicoUseCase(osGateway, clienteGateway, veiculoGateway, presenter);
 
         useCase.executar(new CriarOrdemDeServicoUseCase.Command("52998224725", "ABC1234")).join();
 
         var documentoCaptor = ArgumentCaptor.forClass(br.com.oficina.atendimento.core.entities.cliente.Documento.class);
         var placaCaptor = ArgumentCaptor.forClass(PlacaDeVeiculo.class);
         var ordemCaptor = ArgumentCaptor.forClass(OrdemDeServico.class);
+        var dtoCaptor = ArgumentCaptor.forClass(OrdemDeServicoDTO.class);
         verify(clienteGateway).buscarPorDocumento(documentoCaptor.capture());
         verify(veiculoGateway).buscarPorPlaca(placaCaptor.capture());
         verify(osGateway).adicionar(ordemCaptor.capture());
+        verify(presenter).present(dtoCaptor.capture());
         assertEquals("52998224725", documentoCaptor.getValue().valor());
         assertEquals("ABC1234", placaCaptor.getValue().valor());
         assertEquals(1L, ordemCaptor.getValue().clienteId());
         assertEquals(2L, ordemCaptor.getValue().veiculoId());
+        assertEquals(ordemCaptor.getValue().id(), dtoCaptor.getValue().id());
     }
 
     @Test
@@ -81,7 +87,7 @@ class OrdemDeServicoUseCasesTest {
         var osGateway = mock(OrdemDeServicoGateway.class);
         var clienteGateway = mock(ClienteGateway.class);
         when(clienteGateway.buscarPorDocumento(any())).thenReturn(CompletableFuture.failedFuture(new IllegalStateException("cliente indisponível")));
-        var useCase = new CriarOrdemDeServicoUseCase(osGateway, clienteGateway, mock(VeiculoGateway.class));
+        var useCase = new CriarOrdemDeServicoUseCase(osGateway, clienteGateway, mock(VeiculoGateway.class), mock(OrdemDeServicoPresenter.class));
 
         assertThrows(CompletionException.class,
                 () -> useCase.executar(new CriarOrdemDeServicoUseCase.Command("52998224725", "ABC1234")).join());
@@ -173,6 +179,50 @@ class OrdemDeServicoUseCasesTest {
     }
 
     @Test
+    void criarOrdemDeServico_deveRegistrarMetricaDeCriacao() {
+        var osGateway = mock(OrdemDeServicoGateway.class);
+        var clienteGateway = mock(ClienteGateway.class);
+        var veiculoGateway = mock(VeiculoGateway.class);
+        var presenter = mock(OrdemDeServicoPresenter.class);
+        var observability = mock(AppObservability.class);
+        when(clienteGateway.buscarPorDocumento(any())).thenReturn(CompletableFuture.completedFuture(new Cliente(1L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"))));
+        when(veiculoGateway.buscarPorPlaca(any())).thenReturn(CompletableFuture.completedFuture(
+                new Veiculo(2L, new PlacaDeVeiculo("ABC1234"), new MarcaDeVeiculo("marca"), new ModeloDeVeiculo("modelo"), 2020)));
+        when(osGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(null));
+        var useCase = new CriarOrdemDeServicoUseCase(osGateway, clienteGateway, veiculoGateway, presenter, observability);
+
+        useCase.executar(new CriarOrdemDeServicoUseCase.Command("52998224725", "ABC1234")).join();
+
+        verify(observability).onOrderCreated(any(), eq(TipoDeEstadoDaOrdemDeServico.RECEBIDA));
+        verify(observability, never()).onOrderTransition(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void transicaoDeEstado_deveRegistrarMudancaDeStatus() {
+        var gateway = mock(OrdemDeServicoGateway.class);
+        var estadoSender = mock(EstadoDaOrdemDeServicoSender.class);
+        var observability = mock(AppObservability.class);
+        when(estadoSender.enviar(any())).thenReturn(CompletableFuture.completedFuture(null));
+
+        var os = osEmEstado(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO);
+        doAnswer(invocation -> {
+            Consumer<OrdemDeServico> atualizacao = invocation.getArgument(1);
+            atualizacao.accept(os);
+            return CompletableFuture.completedFuture(null);
+        }).when(gateway).buscaSimplesParaAtualizar(eq(os.id()), any());
+
+        var transicaoService = new TransicaoDeEstadoDaOrdemDeServicoService(gateway, estadoSender, observability);
+        new AprovarOrdemDeServicoUseCase(transicaoService).executar(new AprovarOrdemDeServicoUseCase.Command(os.id())).join();
+
+        verify(observability).onOrderTransition(
+                eq(os.id()),
+                eq(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO),
+                eq(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO),
+                any(),
+                any());
+    }
+
+    @Test
     void acompanharOrdemDeServico_deveRetornarEstadoAtual() {
         var osGateway = mock(OrdemDeServicoGateway.class);
         var presenter = mock(OrdemDeServicoPresenter.class);
@@ -187,6 +237,23 @@ class OrdemDeServicoUseCasesTest {
         verify(presenter).present(dtoCaptor.capture());
         assertEquals(os.id(), dtoCaptor.getValue().id());
         assertEquals("EM_EXECUCAO", dtoCaptor.getValue().estadoAtual().toString());
+    }
+
+    @Test
+    void buscarOrdemDeServico_deveRetornarDadosDaOs() {
+        var osGateway = mock(OrdemDeServicoGateway.class);
+        var presenter = mock(OrdemDeServicoPresenter.class);
+        var os = osEmEstado(TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO);
+        when(osGateway.buscarPorId(os.id())).thenReturn(CompletableFuture.completedFuture(os));
+        var useCase = new BuscarOrdemDeServicoUseCase(osGateway, presenter);
+
+        useCase.executar(new BuscarOrdemDeServicoUseCase.Command(os.id())).join();
+
+        var dtoCaptor = ArgumentCaptor.forClass(OrdemDeServicoDTO.class);
+        verify(presenter).present(dtoCaptor.capture());
+        assertEquals(os.id(), dtoCaptor.getValue().id());
+        assertEquals(os.clienteId(), dtoCaptor.getValue().clienteId());
+        assertEquals(os.veiculoId(), dtoCaptor.getValue().veiculoId());
     }
 
     @Test

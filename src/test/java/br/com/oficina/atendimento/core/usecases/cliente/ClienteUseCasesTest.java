@@ -9,6 +9,7 @@ import br.com.oficina.atendimento.core.interfaces.presenter.dto.ClienteDTO;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
@@ -19,6 +20,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -73,6 +75,35 @@ class ClienteUseCasesTest {
         var useCase = new BuscarClienteUseCase(gateway, mock(ClientePresenter.class));
 
         assertThrows(CompletionException.class, () -> useCase.executar(new BuscarClienteUseCase.Command(99L)).join());
+    }
+
+    @Test
+    void listarClientes_deveApresentarDTOs() {
+        var gateway = mock(ClienteGateway.class);
+        var presenter = mock(ClientePresenter.class);
+        var clientes = List.of(
+                new Cliente(12L, DocumentoFactory.from("52998224725"), new Email("cliente1@oficina.com")),
+                new Cliente(13L, DocumentoFactory.from("07250103040"), new Email("cliente2@oficina.com")));
+        when(gateway.listar()).thenReturn(CompletableFuture.completedFuture(clientes));
+        var useCase = new ListarClientesUseCase(gateway, presenter);
+
+        useCase.executar().join();
+
+        @SuppressWarnings("unchecked")
+        var dtoCaptor = ArgumentCaptor.forClass((Class<List<ClienteDTO>>) (Class<?>) List.class);
+        verify(presenter, times(1)).present(dtoCaptor.capture());
+        assertEquals(2, dtoCaptor.getValue().size());
+        assertEquals("52998224725", dtoCaptor.getValue().getFirst().documento());
+        assertEquals("cliente2@oficina.com", dtoCaptor.getValue().get(1).email());
+    }
+
+    @Test
+    void listarClientes_devePropagarFalhaDoGateway() {
+        var gateway = mock(ClienteGateway.class);
+        when(gateway.listar()).thenReturn(CompletableFuture.failedFuture(new IllegalStateException("falha listar")));
+        var useCase = new ListarClientesUseCase(gateway, mock(ClientePresenter.class));
+
+        assertThrows(CompletionException.class, useCase.executar()::join);
     }
 
     @Test

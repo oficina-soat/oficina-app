@@ -15,6 +15,7 @@ import jakarta.persistence.LockModeType;
 import jakarta.persistence.ManyToMany;
 import jakarta.persistence.OneToOne;
 import jakarta.persistence.Table;
+import org.hibernate.reactive.mutiny.Mutiny;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,6 +27,9 @@ public class UsuarioEntity extends PanacheEntity {
             "select distinct u from UsuarioEntity u "
                     + "join fetch u.pessoa "
                     + "left join fetch u.papelEntities ";
+    private static final String FETCH_PESSOA_QUERY =
+            "select u from UsuarioEntity u "
+                    + "join fetch u.pessoa ";
 
     @OneToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "pessoa_id", nullable = false, unique = true)
@@ -46,11 +50,11 @@ public class UsuarioEntity extends PanacheEntity {
     public List<PapelEntity> papelEntities = new ArrayList<>();
 
     public static Uni<UsuarioEntity> buscarPorIdComRelacionamentos(long id) {
-        return find(FETCH_QUERY + "where u.id = ?1", id).firstResult();
+        return carregarPapeis(find(FETCH_PESSOA_QUERY + "where u.id = ?1", id).firstResult());
     }
 
     public static Uni<UsuarioEntity> buscarPorDocumento(String documento) {
-        return find(FETCH_QUERY + "where u.pessoa.documento = ?1", documento).firstResult();
+        return carregarPapeis(find(FETCH_PESSOA_QUERY + "where u.pessoa.documento = ?1", documento).firstResult());
     }
 
     public static Uni<List<UsuarioEntity>> listarTodosComRelacionamentos() {
@@ -58,16 +62,23 @@ public class UsuarioEntity extends PanacheEntity {
     }
 
     public static Uni<UsuarioEntity> buscarPorPessoaId(long pessoaId) {
-        return find(FETCH_QUERY + "where u.pessoa.id = ?1", pessoaId).firstResult();
+        return carregarPapeis(find(FETCH_PESSOA_QUERY + "where u.pessoa.id = ?1", pessoaId).firstResult());
     }
 
     public static Uni<UsuarioEntity> buscaParaAtualizar(long id) {
-        return find(FETCH_QUERY + "where u.id = ?1", id)
-                .withLock(LockModeType.PESSIMISTIC_WRITE)
-                .firstResult();
+        return carregarPapeis(
+                find(FETCH_PESSOA_QUERY + "where u.id = ?1", id)
+                        .withLock(LockModeType.PESSIMISTIC_WRITE)
+                        .firstResult());
     }
 
     public Uni<UsuarioEntity> persistir() {
         return persist();
+    }
+
+    private static Uni<UsuarioEntity> carregarPapeis(Uni<UsuarioEntity> usuarioUni) {
+        return usuarioUni.onItem()
+                .ifNotNull()
+                .transformToUni(usuario -> Mutiny.fetch(usuario.papelEntities).replaceWith(usuario));
     }
 }

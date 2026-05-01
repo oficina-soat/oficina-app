@@ -4,6 +4,7 @@ import br.com.oficina.atendimento.core.entities.ordem_de_servico.OrdemDeServico;
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.TipoDeEstadoDaOrdemDeServico;
 import br.com.oficina.atendimento.core.interfaces.gateway.OrdemDeServicoGateway;
 import br.com.oficina.atendimento.core.interfaces.sender.EstadoDaOrdemDeServicoSender;
+import br.com.oficina.common.framework.observability.AppObservability;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -15,13 +16,23 @@ public class TransicaoDeEstadoDaOrdemDeServicoService {
 
     private final OrdemDeServicoGateway ordemDeServicoGateway;
     private final EstadoDaOrdemDeServicoSender estadoDaOrdemDeServicoSender;
+    private final AppObservability appObservability;
 
     public TransicaoDeEstadoDaOrdemDeServicoService(
             OrdemDeServicoGateway ordemDeServicoGateway,
             EstadoDaOrdemDeServicoSender estadoDaOrdemDeServicoSender
     ) {
+        this(ordemDeServicoGateway, estadoDaOrdemDeServicoSender, AppObservability.noop());
+    }
+
+    public TransicaoDeEstadoDaOrdemDeServicoService(
+            OrdemDeServicoGateway ordemDeServicoGateway,
+            EstadoDaOrdemDeServicoSender estadoDaOrdemDeServicoSender,
+            AppObservability appObservability
+    ) {
         this.ordemDeServicoGateway = ordemDeServicoGateway;
         this.estadoDaOrdemDeServicoSender = estadoDaOrdemDeServicoSender;
+        this.appObservability = appObservability;
     }
 
     public CompletableFuture<Void> executarTransicaoSimples(UUID ordemDeServicoId, Consumer<OrdemDeServico> transicao) {
@@ -71,6 +82,14 @@ public class TransicaoDeEstadoDaOrdemDeServicoService {
         if (estadoAnterior == novoEstado) {
             return null;
         }
+        appObservability.onOrderTransition(
+                ordemDeServico.id(),
+                estadoAnterior,
+                novoEstado,
+                ordemDeServico.historicoDeEstados().size() >= 2
+                        ? ordemDeServico.historicoDeEstados().get(ordemDeServico.historicoDeEstados().size() - 2).dataDoEstado()
+                        : ordemDeServico.dataDoEstado(),
+                ordemDeServico.dataDoEstado());
         return new EstadoDaOrdemDeServicoSender.Mensagem(
                 ordemDeServico.id(),
                 ordemDeServico.clienteId(),

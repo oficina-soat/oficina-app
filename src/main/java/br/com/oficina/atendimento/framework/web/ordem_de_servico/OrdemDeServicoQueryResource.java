@@ -2,12 +2,11 @@ package br.com.oficina.atendimento.framework.web.ordem_de_servico;
 
 import br.com.oficina.atendimento.core.usecases.ordem_de_servico.ListarOrdensDetalhadasQuery;
 import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoQueryController;
-import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoMagicLinkController;
-import br.com.oficina.atendimento.interfaces.presenters.AcompanharOrdemDeServicoPresenterAdapter;
+import br.com.oficina.atendimento.interfaces.presenters.BuscarOrdemDeServicoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.EstadoAtualOrdemDeServicoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.HistoricoEstadoPresenterAdapter;
 import br.com.oficina.atendimento.interfaces.presenters.ListarOrdemDeServicoPresenterAdapter;
-import br.com.oficina.atendimento.interfaces.presenters.view_model.AcompanharOrdemDeServicoViewModel;
+import br.com.oficina.atendimento.interfaces.presenters.view_model.BuscarOrdemDeServicoViewModel;
 import br.com.oficina.atendimento.interfaces.presenters.view_model.EstadoAtualOrdemDeServicoViewModel;
 import br.com.oficina.atendimento.interfaces.presenters.view_model.HistoricoEstadoViewModel;
 import br.com.oficina.common.web.HeaderLinks;
@@ -20,7 +19,9 @@ import jakarta.ws.rs.DefaultValue;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
 import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.eclipse.microprofile.openapi.annotations.tags.Tag;
 
@@ -32,11 +33,10 @@ public class OrdemDeServicoQueryResource {
 
     @Inject OrdemDeServicoQueryController ordemDeServicoQueryController;
     @Inject HeaderLinks headerLinks;
-    @Inject AcompanharOrdemDeServicoPresenterAdapter acompanharOrdemDeServicoPresenterAdapter;
+    @Inject BuscarOrdemDeServicoPresenterAdapter buscarOrdemDeServicoPresenterAdapter;
     @Inject EstadoAtualOrdemDeServicoPresenterAdapter estadoAtualOrdemDeServicoPresenterAdapter;
     @Inject HistoricoEstadoPresenterAdapter historicoEstadoPresenterAdapter;
     @Inject ListarOrdemDeServicoPresenterAdapter listarOrdemDeServicoPresenterAdapter;
-    @Inject OrdemDeServicoMagicLinkController ordemDeServicoMagicLinkController;
 
     @WithSession
     @GET
@@ -69,6 +69,16 @@ public class OrdemDeServicoQueryResource {
 
     @WithSession
     @GET
+    @Path("{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @RolesAllowed(TipoDePapelValues.ADMINISTRATIVO)
+    public Uni<BuscarOrdemDeServicoViewModel> read(@PathParam("id") String id) {
+        return Uni.createFrom().completionStage(ordemDeServicoQueryController.buscar(id))
+                .replaceWith(buscarOrdemDeServicoPresenterAdapter::viewModel);
+    }
+
+    @WithSession
+    @GET
     @Path("abertas-priorizadas")
     @RolesAllowed(TipoDePapelValues.ADMINISTRATIVO)
     public Uni<Response> listAbertasPriorizadas() {
@@ -87,16 +97,6 @@ public class OrdemDeServicoQueryResource {
         return Uni.createFrom().completionStage(
                         ordemDeServicoQueryController.consultarHistoricoDeEstado(id))
                 .replaceWith(historicoEstadoPresenterAdapter::viewModel);
-    }
-
-    @WithSession
-    @GET
-    @Path("{id}/acompanhar")
-    public Uni<AcompanharOrdemDeServicoViewModel> acompanhar(@PathParam("id") String id,
-                                                             @QueryParam("actionToken") String actionToken) {
-        return Uni.createFrom().completionStage(ordemDeServicoMagicLinkController.validarAcompanhamento(id, actionToken))
-                .chain(_ -> Uni.createFrom().completionStage(ordemDeServicoQueryController.acompanharOrdemDeServico(id)))
-                .replaceWith(acompanharOrdemDeServicoPresenterAdapter::viewModel);
     }
 
     @WithSession

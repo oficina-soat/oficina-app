@@ -44,8 +44,9 @@ final class ListarOrdensDetalhadasHqlBuilder {
 
     HqlConsulta build() {
         var hqlCount = "select count(os) from OrdemDeServicoEntity os" + where;
-        var hqlData = "select os from OrdemDeServicoEntity os" + FETCH_RELATIONS + where + orderByClause();
-        return new HqlConsulta(hqlCount, hqlData, countParams, dataParams, ordenacao());
+        var hqlPage = "select os from OrdemDeServicoEntity os" + where + orderByClause();
+        var hqlFetchByIds = "select distinct os from OrdemDeServicoEntity os" + FETCH_RELATIONS + " where os.id in :ids";
+        return new HqlConsulta(hqlCount, hqlPage, hqlFetchByIds, countParams, dataParams, ordenacao());
     }
 
     private void adicionarFiltroDeEstado(String estado) {
@@ -113,7 +114,8 @@ final class ListarOrdensDetalhadasHqlBuilder {
 
     record HqlConsulta(
             String hqlCount,
-            String hqlData,
+            String hqlPage,
+            String hqlFetchByIds,
             Map<String, Object> countParams,
             Map<String, Object> dataParams,
             Ordenacao ordenacao
