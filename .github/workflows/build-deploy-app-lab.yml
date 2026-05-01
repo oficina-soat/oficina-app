@@ -306,14 +306,11 @@ jobs:
       - name: Stop and point to PR
         shell: bash
         run: |
-          cat >&2 <<EOF
-Nao e permitido reconstruir a mesma versao ja fechada em release quando a imagem sumiu do ECR.
-
-Foi aberto um PR automatico para bump de versao:
-${{ needs.resolve_state.outputs.pull_request_url }}
-
-Faça o merge desse PR em main e execute novamente o workflow Build Deploy App Lab.
-EOF
+          printf '%s\n\n%s\n%s\n\n%s\n' \
+            "Nao e permitido reconstruir a mesma versao ja fechada em release quando a imagem sumiu do ECR." \
+            "Foi aberto um PR automatico para bump de versao:" \
+            "${{ needs.resolve_state.outputs.pull_request_url }}" \
+            "Faca o merge desse PR em main e execute novamente o workflow Build Deploy App Lab." >&2
           exit 1
 
   publish_artifacts:
