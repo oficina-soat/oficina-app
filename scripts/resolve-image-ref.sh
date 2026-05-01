@@ -42,6 +42,39 @@ require_non_empty() {
   fi
 }
 
+resolve_repository_url() {
+  local error_file
+  error_file="$(mktemp)"
+
+  if ECR_REPOSITORY_URL="$(
+    aws --region "${AWS_REGION}" ecr describe-repositories \
+      --repository-names "${ECR_REPOSITORY_NAME}" \
+      --query 'repositories[0].repositoryUri' \
+      --output text 2>"${error_file}"
+  )"; then
+    rm -f "${error_file}"
+    return 0
+  fi
+
+  if grep -q 'RepositoryNotFoundException' "${error_file}"; then
+    cat >&2 <<EOF
+Repositorio ECR nao encontrado: ${ECR_REPOSITORY_NAME}
+
+O workflow de app nao cria infraestrutura AWS. Antes de publicar ou redeployar a imagem:
+- recrie ou reutilize o repositorio ECR pelo repo oficina-infra-k8s
+- confirme que TF_VAR_ecr_repository_name permanece alinhado com ${ECR_REPOSITORY_NAME}
+- se a infra foi recriada do zero, habilite a criacao do ECR no deploy da infra
+
+Se o repositorio existir com outro nome, informe ECR_REPOSITORY_NAME ou ECR_REPOSITORY_URL no GitHub Environment 'lab'.
+EOF
+  else
+    cat "${error_file}" >&2
+  fi
+
+  rm -f "${error_file}"
+  exit 1
+}
+
 if [[ -z "${APP_IMAGE_TAG}" ]]; then
   APP_IMAGE_TAG="$(pom_version)"
 fi
@@ -52,13 +85,7 @@ if [[ -z "${ECR_REPOSITORY_URL}" ]]; then
   require_cmd aws
   require_non_empty "${AWS_REGION}" "AWS_REGION"
   require_non_empty "${ECR_REPOSITORY_NAME}" "ECR_REPOSITORY_NAME"
-
-  ECR_REPOSITORY_URL="$(
-    aws --region "${AWS_REGION}" ecr describe-repositories \
-      --repository-names "${ECR_REPOSITORY_NAME}" \
-      --query 'repositories[0].repositoryUri' \
-      --output text
-  )"
+  resolve_repository_url
 fi
 
 require_non_empty "${ECR_REPOSITORY_URL}" "ECR_REPOSITORY_URL"

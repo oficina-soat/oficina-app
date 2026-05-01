@@ -205,6 +205,7 @@ O deploy automatizado fica em [`.github/workflows/ci.yml`](.github/workflows/ci.
 
 - `develop`: executa testes unitários e de integração e abre PR para `main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
 - `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS após o merge do PR
+- `Build Deploy App Lab`: workflow manual em `main` para validar, gerar nova imagem versionada, publicar no ECR, criar a release e fazer o deploy no EKS
 
 Quando a release da versão atual já existe, commits novos continuam passando por testes e PR, mas o merge em `main` não gera build de imagem, release nem deploy. Em `main`, versões fechadas não podem terminar com `-SNAPSHOT` quando houver deploy pendente, e uma versão já publicada não é sobrescrita.
 
@@ -223,11 +224,21 @@ Detalhes de variáveis, secrets e workflows auxiliares: [docs/github-actions.md]
 
 ## Operações manuais
 
+Build, publicação e deploy manual de uma nova versão fechada em `main`:
+
+```text
+Actions -> Build Deploy App Lab -> Run workflow
+```
+
+Esse workflow exige `project.version` novo no `pom.xml`, valida a aplicação com `./mvnw verify -DskipITs=false`, publica a imagem versionada no ECR, cria a release e faz o rollout no EKS.
+
 Redeploy da imagem versionada já fechada em `main`:
 
 ```text
 Actions -> Redeploy App Lab -> Run workflow
 ```
+
+Use `Redeploy App Lab` apenas quando a release atual já existir e o repositório ECR continuar disponível. Se a infra tiver sido recriada e o ECR não existir, recrie primeiro o repositório pelo `../oficina-infra-k8s`.
 
 ## Validação local
 

@@ -1,0 +1,243 @@
+name: Build Deploy App Lab
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: lab-app
+  cancel-in-progress: false
+
+jobs:
+  detect_app_version:
+    if: github.ref_name == 'main'
+    name: detect-app-version
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      current_version: ${{ steps.version.outputs.current_version }}
+      image_tag: ${{ steps.version.outputs.image_tag }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Validate app version for manual publish
+        id: version
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current_version="$(
+            sed -n '0,/<version>[[:space:]]*/{
+              s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
+            }' pom.xml | head -n 1
+          )"
+
+          if [[ -z "${current_version}" ]]; then
+            echo "Nao foi possivel identificar project.version em pom.xml" >&2
+            exit 1
+          fi
+
+          if [[ "${current_version}" == *-SNAPSHOT ]]; then
+            echo "A versao fechada do app nao pode ser SNAPSHOT: ${current_version}" >&2
+            exit 1
+          fi
+
+          release_tag="v${current_version}"
+          if gh release view "${release_tag}" >/dev/null 2>&1; then
+            echo "A release ${release_tag} ja existe. Todo novo build publicado exige incremento de project.version em pom.xml antes de gerar nova imagem." >&2
+            exit 1
+          fi
+
+          {
+            echo "current_version=${current_version}"
+            echo "image_tag=${current_version}"
+            echo "release_tag=${release_tag}"
+          } >> "${GITHUB_OUTPUT}"
+
+  verify_app:
+    if: github.ref_name == 'main'
+    name: verify-app
+    runs-on: ubuntu-latest
+    needs: detect_app_version
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Ensure mvnw is executable
+        run: chmod +x ./mvnw
+
+      - name: Run full Maven verification
+        run: ./mvnw -B verify -DskipITs=false -DfailIfNoTests=false
+
+  build_publish_release_image:
+    if: github.ref_name == 'main'
+    name: build-publish-release-image
+    runs-on: ubuntu-latest
+    needs:
+      - detect_app_version
+      - verify_app
+    permissions:
+      contents: write
+    environment:
+      name: lab
+    outputs:
+      image_ref: ${{ steps.image.outputs.image_ref }}
+      image_tag: ${{ steps.image.outputs.image_tag }}
+      repository_name: ${{ steps.image.outputs.repository_name }}
+      repository_url: ${{ steps.image.outputs.repository_url }}
+    env:
+      APP_VERSION: ${{ needs.detect_app_version.outputs.current_version }}
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME || 'oficina' }}
+      ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
+      PUSH_LATEST_IMAGE: ${{ vars.PUSH_LATEST_IMAGE || 'false' }}
+      RELEASE_TAG: ${{ needs.detect_app_version.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Resolve image reference
+        id: image
+        shell: bash
+        run: |
+          chmod +x ./scripts/resolve-image-ref.sh
+          APP_IMAGE_TAG="${APP_VERSION}" ./scripts/resolve-image-ref.sh >/tmp/image-ref.txt
+          cat /tmp/image-ref.txt
+
+      - name: Ensure scripts are executable
+        run: chmod +x ./scripts/build-image.sh ./scripts/push-image.sh
+
+      - name: Build Docker image
+        run: ./scripts/build-image.sh "${{ steps.image.outputs.image_ref }}"
+
+      - name: Push Docker image
+        run: ./scripts/push-image.sh "${{ steps.image.outputs.image_ref }}"
+
+      - name: Optionally publish latest tag
+        if: env.PUSH_LATEST_IMAGE == 'true'
+        shell: bash
+        run: |
+          latest_ref="${{ steps.image.outputs.repository_url }}:latest"
+          docker tag "${{ steps.image.outputs.image_ref }}" "${latest_ref}"
+          ./scripts/push-image.sh "${latest_ref}"
+
+      - name: Prepare image metadata
+        shell: bash
+        run: |
+          mkdir -p target
+          {
+            echo "artifact=oficina-app"
+            echo "version=${APP_VERSION}"
+            echo "release=${RELEASE_TAG}"
+            echo "image=${{ steps.image.outputs.image_ref }}"
+            echo "repository=${{ steps.image.outputs.repository_url }}"
+            echo "tag=${{ steps.image.outputs.image_tag }}"
+            echo "commit=${GITHUB_SHA}"
+          } > target/oficina-app-image.txt
+
+      - name: Create GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${RELEASE_TAG}" \
+            target/oficina-app-image.txt \
+            --target "${GITHUB_SHA}" \
+            --title "${RELEASE_TAG}" \
+            --notes "Imagem oficina-app ${APP_VERSION}: ${{ steps.image.outputs.image_ref }}"
+
+      - name: Upload image metadata
+        uses: actions/upload-artifact@v6
+        with:
+          name: oficina-app-image
+          path: target/oficina-app-image.txt
+          if-no-files-found: error
+
+  deploy_app:
+    if: github.ref_name == 'main'
+    name: deploy-app
+    runs-on: ubuntu-latest
+    needs:
+      - build_publish_release_image
+    permissions:
+      contents: read
+    environment:
+      name: lab
+    env:
+      AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'eks-lab' }}
+      IMAGE_REF: ${{ needs.build_publish_release_image.outputs.image_ref }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
+      K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
+      K8S_CONTAINER_NAME: ${{ vars.K8S_CONTAINER_NAME || 'oficina-app' }}
+      K8S_ROLLOUT_TIMEOUT: ${{ vars.K8S_ROLLOUT_TIMEOUT || '300s' }}
+      BOOTSTRAP_K8S_APP_IF_MISSING: ${{ vars.BOOTSTRAP_K8S_APP_IF_MISSING || 'true' }}
+      K8S_APP_OVERLAY: ${{ vars.K8S_APP_OVERLAY || 'k8s/overlays/lab' }}
+      K8S_DB_SECRET_NAME: ${{ vars.K8S_DB_SECRET_NAME || 'oficina-database-env' }}
+      K8S_JWT_SECRET_NAME: ${{ vars.K8S_JWT_SECRET_NAME || 'oficina-jwt-keys' }}
+      REQUIRE_K8S_DB_SECRET: ${{ vars.REQUIRE_K8S_DB_SECRET || 'true' }}
+      JWT_SECRET_SOURCE: ${{ vars.JWT_SECRET_SOURCE || 'aws-secrets-manager' }}
+      JWT_SECRET_NAME: ${{ vars.JWT_SECRET_NAME || 'oficina/lab/jwt' }}
+      JWT_SECRET_PRIVATE_KEY_FIELD: ${{ vars.JWT_SECRET_PRIVATE_KEY_FIELD || 'privateKeyPem' }}
+      JWT_SECRET_PUBLIC_KEY_FIELD: ${{ vars.JWT_SECRET_PUBLIC_KEY_FIELD || 'publicKeyPem' }}
+      ROTATE_JWT_SECRET: ${{ vars.ROTATE_JWT_SECRET || 'false' }}
+      REGENERATE_JWT: ${{ vars.REGENERATE_JWT || 'false' }}
+      JWT_DIR: ${{ vars.JWT_DIR || '.tmp/jwt' }}
+      API_GATEWAY_ID: ${{ vars.API_GATEWAY_ID || '' }}
+      API_GATEWAY_NAME: ${{ vars.API_GATEWAY_NAME || '' }}
+      OFICINA_AUTH_ISSUER: ${{ vars.OFICINA_AUTH_ISSUER || '' }}
+      OFICINA_AUTH_JWKS_URI: ${{ vars.OFICINA_AUTH_JWKS_URI || '' }}
+      OFICINA_AUTH_FORCE_LEGACY: ${{ vars.OFICINA_AUTH_FORCE_LEGACY || 'false' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v5
+        with:
+          version: latest
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v6.1.0
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
+
+      - name: Validate deploy inputs
+        shell: bash
+        run: |
+          missing=()
+          [[ -n "${AWS_REGION}" ]] || missing+=("AWS_REGION")
+          [[ -n "${EKS_CLUSTER_NAME}" ]] || missing+=("EKS_CLUSTER_NAME")
+          [[ -n "${IMAGE_REF}" ]] || missing+=("IMAGE_REF")
+
+          if [[ ${#missing[@]} -gt 0 ]]; then
+            echo "Missing GitHub Environment values for environment 'lab': ${missing[*]}" >&2
+            exit 1
+          fi
+
+          aws sts get-caller-identity >/dev/null
+
+      - name: Deploy app image to EKS
+        run: |
+          chmod +x ./scripts/deploy-k8s.sh
+          ./scripts/deploy-k8s.sh
