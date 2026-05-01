@@ -408,6 +408,9 @@ jobs:
       K8S_APP_OVERLAY: ${{ vars.K8S_APP_OVERLAY || 'k8s/overlays/lab' }}
       K8S_DB_SECRET_NAME: ${{ vars.K8S_DB_SECRET_NAME || 'oficina-database-env' }}
       K8S_DATABASE_SECRET_ID: ${{ vars.K8S_DATABASE_SECRET_ID || 'oficina/lab/database/app' }}
+      K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET: ${{ vars.K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET || 'true' }}
+      DB_INSTANCE_IDENTIFIER: ${{ vars.DB_INSTANCE_IDENTIFIER || 'oficina-postgres-lab' }}
+      DB_NAME: ${{ vars.DB_NAME || 'app' }}
       K8S_JWT_SECRET_NAME: ${{ vars.K8S_JWT_SECRET_NAME || 'oficina-jwt-keys' }}
       REQUIRE_K8S_DB_SECRET: ${{ vars.REQUIRE_K8S_DB_SECRET || 'true' }}
       JWT_SECRET_SOURCE: ${{ vars.JWT_SECRET_SOURCE || 'aws-secrets-manager' }}

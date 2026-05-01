@@ -13,6 +13,9 @@ BOOTSTRAP_K8S_APP_IF_MISSING="${BOOTSTRAP_K8S_APP_IF_MISSING:-true}"
 K8S_APP_OVERLAY="${K8S_APP_OVERLAY:-k8s/overlays/lab}"
 K8S_DB_SECRET_NAME="${K8S_DB_SECRET_NAME:-oficina-database-env}"
 K8S_DATABASE_SECRET_ID="${K8S_DATABASE_SECRET_ID:-oficina/lab/database/app}"
+K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET="${K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET:-true}"
+DB_INSTANCE_IDENTIFIER="${DB_INSTANCE_IDENTIFIER:-oficina-postgres-lab}"
+DB_NAME="${DB_NAME:-app}"
 REQUIRE_K8S_DB_SECRET="${REQUIRE_K8S_DB_SECRET:-true}"
 K8S_JWT_SECRET_NAME="${K8S_JWT_SECRET_NAME:-oficina-jwt-keys}"
 JWT_SECRET_SOURCE="${JWT_SECRET_SOURCE:-aws-secrets-manager}"
@@ -202,7 +205,21 @@ read_secret_field() {
   jq -er --arg field_name "${field_name}" '.[$field_name] // empty' <<<"${secret_json}" 2>/dev/null || true
 }
 
+rds_instance_field() {
+  local query="$1"
+
+  aws --region "${AWS_REGION}" rds describe-db-instances \
+    --db-instance-identifier "${DB_INSTANCE_IDENTIFIER}" \
+    --query "${query}" \
+    --output text 2>/dev/null | sed '/^None$/d' || true
+}
+
+rds_master_secret_id() {
+  rds_instance_field 'DBInstances[0].MasterUserSecret.SecretArn'
+}
+
 apply_db_secret_from_aws() {
+  local secret_id="${1:-${K8S_DATABASE_SECRET_ID}}"
   local secret_json=""
   local db_host=""
   local db_port=""
@@ -213,15 +230,15 @@ apply_db_secret_from_aws() {
 
   require_cmd aws
   require_cmd jq
-  require_non_empty "${K8S_DATABASE_SECRET_ID}" "K8S_DATABASE_SECRET_ID"
+  require_non_empty "${secret_id}" "secret_id"
 
-  if ! aws_secret_exists "${K8S_DATABASE_SECRET_ID}"; then
+  if ! aws_secret_exists "${secret_id}"; then
     return 1
   fi
 
-  secret_json="$(read_aws_secret_json "${K8S_DATABASE_SECRET_ID}")"
+  secret_json="$(read_aws_secret_json "${secret_id}")"
   if [[ -z "${secret_json}" ]]; then
-    echo "Secret ${K8S_DATABASE_SECRET_ID} nao possui SecretString legivel." >&2
+    echo "Secret ${secret_id} nao possui SecretString legivel." >&2
     exit 1
   fi
 
@@ -231,6 +248,18 @@ apply_db_secret_from_aws() {
   db_user="$(read_secret_field "${secret_json}" username)"
   db_password="$(read_secret_field "${secret_json}" password)"
   db_sslmode="$(read_secret_field "${secret_json}" sslmode)"
+
+  if [[ -z "${db_host}" ]]; then
+    db_host="$(rds_instance_field 'DBInstances[0].Endpoint.Address')"
+  fi
+
+  if [[ -z "${db_port}" ]]; then
+    db_port="$(rds_instance_field 'DBInstances[0].Endpoint.Port')"
+  fi
+
+  if [[ -z "${db_name}" ]]; then
+    db_name="${DB_NAME}"
+  fi
 
   require_non_empty "${db_host}" "db_host"
   require_non_empty "${db_port}" "db_port"
@@ -242,7 +271,7 @@ apply_db_secret_from_aws() {
     db_sslmode="require"
   fi
 
-  log "Aplicando secret ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME} a partir do Secrets Manager ${K8S_DATABASE_SECRET_ID}"
+  log "Aplicando secret ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME} a partir do Secrets Manager ${secret_id}"
   kubectl apply -f - <<EOF
 apiVersion: v1
 kind: Secret
@@ -286,6 +315,8 @@ dump_rollout_diagnostics() {
 }
 
 ensure_db_secret() {
+  local fallback_secret_id=""
+
   if secret_exists "${K8S_DB_SECRET_NAME}"; then
     log "Usando secret ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME}"
     return
@@ -295,11 +326,23 @@ ensure_db_secret() {
     return
   fi
 
+  if [[ "${K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET}" == "true" ]]; then
+    fallback_secret_id="$(rds_master_secret_id || true)"
+    if [[ -n "${fallback_secret_id}" ]]; then
+      log "Secret ${K8S_DATABASE_SECRET_ID} nao encontrado; tentando secret master do RDS ${DB_INSTANCE_IDENTIFIER}"
+      if apply_db_secret_from_aws "${fallback_secret_id}"; then
+        return
+      fi
+    fi
+  fi
+
   if [[ "${REQUIRE_K8S_DB_SECRET}" == "true" ]]; then
     cat >&2 <<EOF
 Secret obrigatorio ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME} nao encontrado.
 
-O deploy tentou recriar o secret a partir do Secrets Manager ${K8S_DATABASE_SECRET_ID}, mas nao encontrou um secret AWS legivel com esse identificador.
+O deploy tentou recriar o secret a partir do Secrets Manager ${K8S_DATABASE_SECRET_ID}.
+Quando habilitado, tambem tentou descobrir o secret master do RDS ${DB_INSTANCE_IDENTIFIER}.
+Nenhuma origem legivel foi encontrada.
 
 Crie ou reaplique o secret pelo repo oficina-infra-db antes de publicar o app:
   Actions -> Deploy Lab -> Run workflow com APPLY_K8S_SECRET=true
@@ -311,6 +354,7 @@ Ou execute manualmente no repo oficina-infra-db:
   ./scripts/apply-k8s-secret.sh
 
 Se o secret existir no AWS Secrets Manager com outro nome, informe K8S_DATABASE_SECRET_ID no GitHub Environment 'lab'.
+Se o RDS usar outro identificador, informe DB_INSTANCE_IDENTIFIER no GitHub Environment 'lab'.
 
 Para permitir deploy sem banco, configure REQUIRE_K8S_DB_SECRET=false.
 EOF
