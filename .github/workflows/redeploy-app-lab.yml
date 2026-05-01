@@ -80,9 +80,31 @@ jobs:
       - name: Validate ECR image
         shell: bash
         run: |
-          aws --region "${AWS_REGION}" ecr describe-images \
+          error_file="$(mktemp)"
+
+          if aws --region "${AWS_REGION}" ecr describe-images \
             --repository-name "${{ steps.image.outputs.repository_name }}" \
-            --image-ids imageTag="${{ steps.image.outputs.image_tag }}" >/dev/null
+            --image-ids imageTag="${{ steps.image.outputs.image_tag }}" >/dev/null 2>"${error_file}"; then
+            rm -f "${error_file}"
+            exit 0
+          fi
+
+          if grep -q 'ImageNotFoundException' "${error_file}"; then
+            cat >&2 <<EOF
+Imagem nao encontrada no ECR: ${{ steps.image.outputs.repository_name }}:${{ steps.image.outputs.image_tag }}
+
+Esse workflow so reaplica uma imagem ja publicada.
+Se a release existe mas a imagem nao esta mais no ECR, execute:
+- Actions -> Build Deploy App Lab -> Run workflow
+
+O workflow manual vai incrementar a proxima versao no pom.xml, publicar uma imagem nova e fazer o deploy.
+EOF
+          else
+            cat "${error_file}" >&2
+          fi
+
+          rm -f "${error_file}"
+          exit 1
 
   deploy_app:
     if: github.ref_name == 'main'

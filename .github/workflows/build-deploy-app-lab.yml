@@ -13,26 +13,47 @@ jobs:
     name: detect-app-version
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
     outputs:
+      commit_sha: ${{ steps.version.outputs.commit_sha }}
       current_version: ${{ steps.version.outputs.current_version }}
       image_tag: ${{ steps.version.outputs.image_tag }}
       release_tag: ${{ steps.version.outputs.release_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
-      - name: Validate app version for manual publish
+      - name: Prepare app version for manual publish
         id: version
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          current_version="$(
+          extract_version() {
             sed -n '0,/<version>[[:space:]]*/{
               s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
-            }' pom.xml | head -n 1
-          )"
+            }' "$1" | head -n 1
+          }
+
+          increment_patch_version() {
+            local version="$1"
+            local major=""
+            local minor=""
+            local patch=""
+            local extra=""
+
+            IFS='.' read -r major minor patch extra <<<"${version}"
+            if [[ -n "${extra}" || ! "${major}" =~ ^[0-9]+$ || ! "${minor}" =~ ^[0-9]+$ || ! "${patch}" =~ ^[0-9]+$ ]]; then
+              echo "Nao foi possivel incrementar automaticamente a versao ${version}. Use o formato semantico <major>.<minor>.<patch>." >&2
+              exit 1
+            fi
+
+            printf '%s.%s.%s\n' "${major}" "${minor}" "$((patch + 1))"
+          }
+
+          current_version="$(extract_version pom.xml)"
 
           if [[ -z "${current_version}" ]]; then
             echo "Nao foi possivel identificar project.version em pom.xml" >&2
@@ -44,13 +65,29 @@ jobs:
             exit 1
           fi
 
+          original_version="${current_version}"
           release_tag="v${current_version}"
-          if gh release view "${release_tag}" >/dev/null 2>&1; then
-            echo "A release ${release_tag} ja existe. Todo novo build publicado exige incremento de project.version em pom.xml antes de gerar nova imagem." >&2
-            exit 1
+          while gh release view "${release_tag}" >/dev/null 2>&1; do
+            next_version="$(increment_patch_version "${current_version}")"
+            echo "A release ${release_tag} ja existe; incrementando automaticamente para ${next_version}."
+            current_version="${next_version}"
+            release_tag="v${current_version}"
+          done
+
+          if [[ "${current_version}" != "${original_version}" ]]; then
+            perl -0pi -e "s#<version>${original_version}</version>#<version>${current_version}</version>#" pom.xml
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add pom.xml
+            git commit -m "chore: incrementa versão para ${current_version} [manual-build-deploy]"
+            git push origin HEAD:main
           fi
 
+          commit_sha="$(git rev-parse HEAD)"
+
           {
+            echo "commit_sha=${commit_sha}"
             echo "current_version=${current_version}"
             echo "image_tag=${current_version}"
             echo "release_tag=${release_tag}"
@@ -64,6 +101,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.detect_app_version.outputs.commit_sha }}
 
       - name: Setup Java
         uses: actions/setup-java@v5
@@ -104,6 +143,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.detect_app_version.outputs.commit_sha }}
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.1.0
@@ -149,7 +190,7 @@ jobs:
             echo "image=${{ steps.image.outputs.image_ref }}"
             echo "repository=${{ steps.image.outputs.repository_url }}"
             echo "tag=${{ steps.image.outputs.image_tag }}"
-            echo "commit=${GITHUB_SHA}"
+            echo "commit=${{ needs.detect_app_version.outputs.commit_sha }}"
           } > target/oficina-app-image.txt
 
       - name: Create GitHub release
@@ -159,7 +200,7 @@ jobs:
         run: |
           gh release create "${RELEASE_TAG}" \
             target/oficina-app-image.txt \
-            --target "${GITHUB_SHA}" \
+            --target "${{ needs.detect_app_version.outputs.commit_sha }}" \
             --title "${RELEASE_TAG}" \
             --notes "Imagem oficina-app ${APP_VERSION}: ${{ steps.image.outputs.image_ref }}"
 
@@ -175,6 +216,7 @@ jobs:
     name: deploy-app
     runs-on: ubuntu-latest
     needs:
+      - detect_app_version
       - build_publish_release_image
     permissions:
       contents: read
@@ -208,6 +250,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.detect_app_version.outputs.commit_sha }}
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v5

@@ -37,7 +37,7 @@ No fluxo automático, os testes unitários e de integração rodam antes, no `pu
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
-O workflow manual `Build Deploy App Lab` segue exatamente a mesma regra: ele só publica quando `project.version` aponta para uma release nova. Se a release `v<project.version>` já existir, o workflow falha cedo e exige incremento de versão antes de outro build publicado.
+O workflow manual `Build Deploy App Lab` continua respeitando a regra de não reutilizar release publicada. Se a release `v<project.version>` já existir, ele incrementa automaticamente a próxima versão de patch no `pom.xml`, cria um commit em `main` e publica a nova release com esse valor atualizado.
 
 ## Integração com os repos de infra
 
@@ -146,7 +146,7 @@ O workflow executa:
 
 Selecione a branch `main` ao executar o workflow. Em outras branches, os jobs ficam bloqueados por guarda explícita.
 
-Se o laboratório tiver sido recriado e o repositório ECR ainda não existir, esse workflow falha na resolução da imagem. Nesse caso, primeiro recrie ou reutilize o ECR pelo `../oficina-infra-k8s`, ou rode `Build Deploy App Lab` depois de incrementar `project.version`.
+Se o laboratório tiver sido recriado e a imagem da release atual não estiver mais no ECR, esse workflow falha na validação da tag e orienta a executar `Build Deploy App Lab`, que cria uma nova imagem publicada com a próxima versão disponível.
 
 ## Validação local
 

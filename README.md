@@ -230,7 +230,7 @@ Build, publicação e deploy manual de uma nova versão fechada em `main`:
 Actions -> Build Deploy App Lab -> Run workflow
 ```
 
-Esse workflow exige `project.version` novo no `pom.xml`, valida a aplicação com `./mvnw verify -DskipITs=false`, publica a imagem versionada no ECR, cria a release e faz o rollout no EKS.
+Esse workflow valida a aplicação com `./mvnw verify -DskipITs=false`, publica a imagem versionada no ECR, cria a release e faz o rollout no EKS. Se a release apontada pelo `project.version` atual já existir, o workflow incrementa automaticamente a próxima versão de patch no `pom.xml`, faz commit em `main` e continua a publicação com a nova versão.
 
 Redeploy da imagem versionada já fechada em `main`:
 
