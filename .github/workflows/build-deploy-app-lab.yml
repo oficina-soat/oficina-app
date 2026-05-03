@@ -1,20 +1,176 @@
 name: Build Deploy App Lab
 
 on:
+  push:
+    branches:
+      - develop
+      - main
   workflow_dispatch:
 
 concurrency:
   group: lab-app
   cancel-in-progress: false
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
 jobs:
-  resolve_state:
-    if: github.ref_name == 'main'
-    name: resolve-state
+  tests:
+    if: github.ref_name == 'develop'
+    name: tests
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "25"
+          cache: maven
+
+      - name: Ensure mvnw is executable
+        run: chmod +x ./mvnw
+
+      - name: Run Maven verification
+        run: ./mvnw -B verify -DskipITs=false -DfailIfNoTests=false
+
+  open-pull-request-to-main:
+    needs: tests
+    if: github.event_name == 'push' && github.ref_name == 'develop'
+    name: open-pull-request-to-main
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
       pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Open or update pull request to main
+        shell: bash
+        env:
+          BASE_BRANCH: main
+          GH_TOKEN: ${{ github.token }}
+          HEAD_BRANCH: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+
+          extract_version() {
+            sed -n '0,/<version>[[:space:]]*/{
+              s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
+            }' "$1" | head -n 1
+          }
+
+          find_existing_pr_number() {
+            local candidate_head=""
+            local pr_number=""
+
+            for candidate_head in "${GITHUB_REPOSITORY_OWNER}:${HEAD_BRANCH}" "${HEAD_BRANCH}"; do
+              pr_number="$(
+                gh pr list \
+                  --repo "${GITHUB_REPOSITORY}" \
+                  --base "${BASE_BRANCH}" \
+                  --head "${candidate_head}" \
+                  --state open \
+                  --json number \
+                  --jq '.[0].number // empty'
+              )"
+
+              if [[ -n "${pr_number}" ]]; then
+                printf '%s\n' "${pr_number}"
+                return
+              fi
+            done
+          }
+
+          git fetch origin "${BASE_BRANCH}" "${HEAD_BRANCH}"
+          head_ref="${GITHUB_REPOSITORY_OWNER}:${HEAD_BRANCH}"
+
+          if git merge-base "origin/${BASE_BRANCH}" "origin/${HEAD_BRANCH}" >/dev/null 2>&1; then
+            if git diff --quiet "origin/${BASE_BRANCH}...origin/${HEAD_BRANCH}" -- .; then
+              echo "Branch ${HEAD_BRANCH} nao possui diferencas de conteudo em relacao a ${BASE_BRANCH}; PR nao sera criado."
+              exit 0
+            fi
+          else
+            echo "Branches ${BASE_BRANCH} e ${HEAD_BRANCH} ainda nao possuem merge base; seguindo para a verificacao de PR existente."
+          fi
+
+          current_version="$(extract_version pom.xml)"
+          if [[ -z "${current_version}" ]]; then
+            echo "Nao foi possivel identificar project.version em pom.xml" >&2
+            exit 1
+          fi
+
+          if [[ "${current_version}" == *-SNAPSHOT ]]; then
+            echo "Nao vou abrir PR para main com versao SNAPSHOT: ${current_version}" >&2
+            exit 1
+          fi
+
+          title="Atualizar ${BASE_BRANCH} com ${HEAD_BRANCH} - oficina-app v${current_version}"
+          body="$(printf '%s\n\n%s\n%s\n%s\n%s\n\n%s\n' \
+            "PR automatico preparado pelo workflow Build Deploy App Lab apos a validacao dos testes." \
+            "- Versao: ${current_version}" \
+            "- Branch origem: ${HEAD_BRANCH}" \
+            "- Branch destino: ${BASE_BRANCH}" \
+            "- Commit validado: ${GITHUB_SHA}" \
+            "Ao aceitar este PR, o push resultante em ${BASE_BRANCH} vai consultar o estado atual da AWS e executar apenas build, publicacao de imagem, release e deploy que ainda forem necessarios.")"
+
+          existing_pr_number="$(find_existing_pr_number)"
+
+          if [[ -n "${existing_pr_number}" ]]; then
+            gh pr edit "${existing_pr_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}"
+            exit 0
+          fi
+
+          set +e
+          create_output="$(
+            gh pr create \
+              --repo "${GITHUB_REPOSITORY}" \
+              --base "${BASE_BRANCH}" \
+              --head "${head_ref}" \
+              --title "${title}" \
+              --body "${body}" \
+              2>&1
+          )"
+          create_status=$?
+          set -e
+
+          if [[ ${create_status} -eq 0 ]]; then
+            echo "${create_output}"
+            exit 0
+          fi
+
+          existing_pr_number="$(find_existing_pr_number)"
+
+          if [[ -n "${existing_pr_number}" ]]; then
+            gh pr edit "${existing_pr_number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --title "${title}" \
+              --body "${body}"
+            exit 0
+          fi
+
+          if grep -q "A pull request already exists" <<<"${create_output}"; then
+            echo "Pull request ja existente para ${HEAD_BRANCH} -> ${BASE_BRANCH}."
+            exit 0
+          fi
+
+          echo "${create_output}" >&2
+          exit "${create_status}"
+
+  resolve_app_state:
+    if: github.ref_name == 'main'
+    name: resolve-app-state
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
     environment:
       name: lab
     outputs:
@@ -29,30 +185,28 @@ jobs:
       need_build: ${{ steps.state.outputs.need_build }}
       need_deploy: ${{ steps.state.outputs.need_deploy }}
       need_release: ${{ steps.state.outputs.need_release }}
-      pull_request_url: ${{ steps.state.outputs.pull_request_url }}
+      publish_relevant_change: ${{ steps.state.outputs.publish_relevant_change }}
       release_exists: ${{ steps.state.outputs.release_exists }}
       release_tag: ${{ steps.state.outputs.release_tag }}
       repository_name: ${{ steps.state.outputs.repository_name }}
       repository_url: ${{ steps.state.outputs.repository_url }}
-      version_bump_required: ${{ steps.state.outputs.version_bump_required }}
+      version_changed: ${{ steps.state.outputs.version_changed }}
     env:
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME || 'oficina' }}
       ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
       EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'eks-lab' }}
-      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
-      K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
       K8S_CONTAINER_NAME: ${{ vars.K8S_CONTAINER_NAME || 'oficina-app' }}
+      K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v5
-        with:
-          version: latest
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.1.0
@@ -62,7 +216,7 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
-      - name: Resolve publish and deploy state
+      - name: Resolve AWS publish and deploy state
         id: state
         shell: bash
         env:
@@ -78,22 +232,6 @@ jobs:
             sed -n '0,/<version>[[:space:]]*/{
               s/.*<version>[[:space:]]*\([^<][^<]*\)[[:space:]]*<\/version>.*/\1/p
             }' "$1" | head -n 1
-          }
-
-          increment_patch_version() {
-            local version="$1"
-            local major=""
-            local minor=""
-            local patch=""
-            local extra=""
-
-            IFS='.' read -r major minor patch extra <<<"${version}"
-            if [[ -n "${extra}" || ! "${major}" =~ ^[0-9]+$ || ! "${minor}" =~ ^[0-9]+$ || ! "${patch}" =~ ^[0-9]+$ ]]; then
-              echo "Nao foi possivel incrementar automaticamente a versao ${version}. Use o formato semantico <major>.<minor>.<patch>." >&2
-              exit 1
-            fi
-
-            printf '%s.%s.%s\n' "${major}" "${minor}" "$((patch + 1))"
           }
 
           image_tag_exists() {
@@ -117,72 +255,17 @@ jobs:
             exit 1
           }
 
-          open_bump_pr() {
-            local base_version="$1"
-            local target_version="$2"
-            local branch_name="automation/manual-build-deploy-v${target_version}"
-            local title="chore: incrementa versão para ${target_version}"
-            local body=""
-            local head_ref="${GITHUB_REPOSITORY_OWNER}:${branch_name}"
-            local existing_pr_number=""
-            local pr_url=""
+          is_publish_relevant_path() {
+            local path="$1"
 
-            body="$(printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
-              "PR automático aberto pelo workflow Build Deploy App Lab." \
-              "- Versão atual em main: ${base_version}" \
-              "- Próxima versão necessária para publicação: ${target_version}" \
-              "- Motivo: a release v${base_version} já existe, mas a imagem versionada não está mais disponível no ECR" \
-              "Depois do merge deste PR em main, execute novamente o workflow Build Deploy App Lab para publicar a nova imagem e fazer o deploy.")"
-
-            perl -0pi -e "s#<version>${base_version}</version>#<version>${target_version}</version>#" pom.xml
-
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git checkout -b "${branch_name}"
-            git add pom.xml
-            git commit -m "chore: incrementa versão para ${target_version}"
-            git push --force-with-lease origin "HEAD:refs/heads/${branch_name}"
-
-            existing_pr_number="$(gh pr list \
-              --repo "${GITHUB_REPOSITORY}" \
-              --base main \
-              --head "${head_ref}" \
-              --state open \
-              --json number \
-              --jq '.[0].number // empty')"
-
-            if [[ -n "${existing_pr_number}" ]]; then
-              gh pr edit "${existing_pr_number}" \
-                --repo "${GITHUB_REPOSITORY}" \
-                --title "${title}" \
-                --body "${body}" >/dev/null
-              pr_url="$(gh pr view "${existing_pr_number}" --repo "${GITHUB_REPOSITORY}" --json url --jq '.url')"
-            else
-              pr_url="$(gh pr create \
-                --repo "${GITHUB_REPOSITORY}" \
-                --base main \
-                --head "${branch_name}" \
-                --title "${title}" \
-                --body "${body}")"
-            fi
-
-            set_output action_mode open_bump_pr
-            set_output commit_sha ""
-            set_output current_deployment_image "${current_deployment_image}"
-            set_output current_version "${target_version}"
-            set_output deployment_exists "${deployment_exists}"
-            set_output image_exists false
-            set_output image_ref "${repository_url}:${target_version}"
-            set_output image_tag "${target_version}"
-            set_output need_build false
-            set_output need_deploy false
-            set_output need_release false
-            set_output pull_request_url "${pr_url}"
-            set_output release_exists true
-            set_output release_tag "v${target_version}"
-            set_output repository_name "${repository_name}"
-            set_output repository_url "${repository_url}"
-            set_output version_bump_required true
+            case "${path}" in
+              .github/*|README.md|docs/*)
+                return 1
+                ;;
+              *)
+                return 0
+                ;;
+            esac
           }
 
           current_version="$(extract_version pom.xml)"
@@ -192,8 +275,31 @@ jobs:
           fi
 
           if [[ "${current_version}" == *-SNAPSHOT ]]; then
-            echo "A versao fechada do app nao pode ser SNAPSHOT: ${current_version}" >&2
+            echo "A versao fechada do app em main nao pode ser SNAPSHOT: ${current_version}" >&2
             exit 1
+          fi
+
+          version_changed=false
+          publish_relevant_change=false
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]]; then
+            if git show "${{ github.event.before }}:pom.xml" > /tmp/base-pom.xml 2>/dev/null; then
+              base_version="$(extract_version /tmp/base-pom.xml)"
+              if [[ -n "${base_version}" && "${current_version}" != "${base_version}" ]]; then
+                version_changed=true
+              fi
+            else
+              version_changed=true
+            fi
+
+            while IFS= read -r changed_path; do
+              if is_publish_relevant_path "${changed_path}"; then
+                publish_relevant_change=true
+                break
+              fi
+            done < <(git diff --name-only "${{ github.event.before }}" "${GITHUB_SHA}")
+          elif [[ "${{ github.event_name }}" == "push" ]]; then
+            version_changed=true
+            publish_relevant_change=true
           fi
 
           release_tag="v${current_version}"
@@ -214,25 +320,15 @@ jobs:
             image_exists=true
           fi
 
-          deployment_exists=false
-          current_deployment_image=""
-          if [[ "${release_exists}" == true && "${image_exists}" == false ]]; then
-            next_version="${current_version}"
-            while gh release view "v${next_version}" >/dev/null 2>&1; do
-              next_version="$(increment_patch_version "${next_version}")"
-            done
-            open_bump_pr "${current_version}" "${next_version}"
-            exit 0
-          fi
-
-          if ! aws --region "${AWS_REGION}" eks describe-cluster \
-            --name "${EKS_CLUSTER_NAME}" >/dev/null 2>&1; then
-            echo "Cluster EKS nao encontrado: ${EKS_CLUSTER_NAME}. Recrie ou reaplique a infra antes do deploy do app." >&2
+          if ! aws --region "${AWS_REGION}" eks describe-cluster --name "${EKS_CLUSTER_NAME}" >/dev/null 2>&1; then
+            echo "Cluster EKS nao encontrado: ${EKS_CLUSTER_NAME}. A aplicacao depende da infra AWS ja existente antes do deploy." >&2
             exit 1
           fi
 
           aws eks update-kubeconfig --region "${AWS_REGION}" --name "${EKS_CLUSTER_NAME}"
 
+          deployment_exists=false
+          current_deployment_image=""
           if kubectl get deployment "${K8S_DEPLOYMENT_NAME}" --namespace "${K8S_NAMESPACE}" >/dev/null 2>&1; then
             deployment_exists=true
             current_deployment_image="$(
@@ -246,8 +342,6 @@ jobs:
           need_release=false
           need_deploy=false
           action_mode=noop
-          version_bump_required=false
-          pull_request_url=""
 
           if [[ "${image_exists}" == false ]]; then
             need_build=true
@@ -259,6 +353,19 @@ jobs:
 
           if [[ "${deployment_exists}" == false || "${current_deployment_image}" != "${image_ref}" ]]; then
             need_deploy=true
+          fi
+
+          if [[ "${{ github.event_name }}" == "push" &&
+                "${publish_relevant_change}" == true &&
+                "${version_changed}" == false &&
+                ( "${need_build}" == true || "${need_release}" == true ) ]]; then
+            printf '%s\n\n%s\n%s\n%s\n\n%s\n' \
+              "Push em main exige nova publicacao, mas project.version nao mudou." \
+              "Versao atual: ${current_version}" \
+              "Release existe: ${release_exists}" \
+              "Imagem existe no ECR: ${image_exists}" \
+              "Incremente project.version em pom.xml antes de publicar novo build, release ou imagem." >&2
+            exit 1
           fi
 
           if [[ "${need_build}" == true ]]; then
@@ -284,59 +391,46 @@ jobs:
           set_output need_build "${need_build}"
           set_output need_deploy "${need_deploy}"
           set_output need_release "${need_release}"
-          set_output pull_request_url "${pull_request_url}"
+          set_output publish_relevant_change "${publish_relevant_change}"
           set_output release_exists "${release_exists}"
           set_output release_tag "${release_tag}"
           set_output repository_name "${repository_name}"
           set_output repository_url "${repository_url}"
-          set_output version_bump_required "${version_bump_required}"
+          set_output version_changed "${version_changed}"
 
           printf 'Modo resolvido: %s\n' "${action_mode}"
           printf 'Release existe: %s\n' "${release_exists}"
           printf 'Imagem existe no ECR: %s\n' "${image_exists}"
           printf 'Deployment existe: %s\n' "${deployment_exists}"
+          printf 'Imagem alvo: %s\n' "${image_ref}"
           printf 'Imagem atual no deployment: %s\n' "${current_deployment_image:-<ausente>}"
-
-  version_bump_required:
-    if: github.ref_name == 'main' && needs.resolve_state.outputs.version_bump_required == 'true'
-    name: version-bump-required
-    runs-on: ubuntu-latest
-    needs: resolve_state
-    steps:
-      - name: Stop and point to PR
-        shell: bash
-        run: |
-          printf '%s\n\n%s\n%s\n\n%s\n' \
-            "Nao e permitido reconstruir a mesma versao ja fechada em release quando a imagem sumiu do ECR." \
-            "Foi aberto um PR automatico para bump de versao:" \
-            "${{ needs.resolve_state.outputs.pull_request_url }}" \
-            "Faca o merge desse PR em main e execute novamente o workflow Build Deploy App Lab." >&2
-          exit 1
+          printf 'Versao mudou no push: %s\n' "${version_changed}"
+          printf 'Mudanca publicavel no push: %s\n' "${publish_relevant_change}"
 
   publish_artifacts:
-    if: github.ref_name == 'main' && needs.resolve_state.outputs.version_bump_required != 'true'
+    if: github.ref_name == 'main'
     name: publish-artifacts
     runs-on: ubuntu-latest
-    needs: resolve_state
+    needs: resolve_app_state
     permissions:
       contents: write
     environment:
       name: lab
     env:
-      APP_VERSION: ${{ needs.resolve_state.outputs.current_version }}
+      APP_VERSION: ${{ needs.resolve_app_state.outputs.current_version }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
       ECR_REPOSITORY_NAME: ${{ vars.ECR_REPOSITORY_NAME || 'oficina' }}
       ECR_REPOSITORY_URL: ${{ vars.ECR_REPOSITORY_URL }}
       PUSH_LATEST_IMAGE: ${{ vars.PUSH_LATEST_IMAGE || 'false' }}
-      RELEASE_TAG: ${{ needs.resolve_state.outputs.release_tag }}
+      RELEASE_TAG: ${{ needs.resolve_app_state.outputs.release_tag }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
-          ref: ${{ needs.resolve_state.outputs.commit_sha }}
+          ref: ${{ needs.resolve_app_state.outputs.commit_sha }}
 
       - name: Setup Java
-        if: needs.resolve_state.outputs.need_build == 'true'
+        if: needs.resolve_app_state.outputs.need_build == 'true'
         uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -344,14 +438,15 @@ jobs:
           cache: maven
 
       - name: Ensure mvnw is executable
-        if: needs.resolve_state.outputs.need_build == 'true'
+        if: needs.resolve_app_state.outputs.need_build == 'true'
         run: chmod +x ./mvnw
 
-      - name: Run full Maven verification
-        if: needs.resolve_state.outputs.need_build == 'true'
+      - name: Run Maven verification before image build
+        if: needs.resolve_app_state.outputs.need_build == 'true'
         run: ./mvnw -B verify -DskipITs=false -DfailIfNoTests=false
 
       - name: Configure AWS credentials
+        if: needs.resolve_app_state.outputs.need_build == 'true'
         uses: aws-actions/configure-aws-credentials@v6.1.0
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -359,28 +454,28 @@ jobs:
           aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
           aws-region: ${{ vars.AWS_REGION || 'us-east-1' }}
 
-      - name: Ensure scripts are executable
-        if: needs.resolve_state.outputs.need_build == 'true'
+      - name: Ensure image scripts are executable
+        if: needs.resolve_app_state.outputs.need_build == 'true'
         run: chmod +x ./scripts/build-image.sh ./scripts/push-image.sh
 
       - name: Build Docker image
-        if: needs.resolve_state.outputs.need_build == 'true'
-        run: ./scripts/build-image.sh "${{ needs.resolve_state.outputs.image_ref }}"
+        if: needs.resolve_app_state.outputs.need_build == 'true'
+        run: ./scripts/build-image.sh "${{ needs.resolve_app_state.outputs.image_ref }}"
 
       - name: Push Docker image
-        if: needs.resolve_state.outputs.need_build == 'true'
-        run: ./scripts/push-image.sh "${{ needs.resolve_state.outputs.image_ref }}"
+        if: needs.resolve_app_state.outputs.need_build == 'true'
+        run: ./scripts/push-image.sh "${{ needs.resolve_app_state.outputs.image_ref }}"
 
       - name: Optionally publish latest tag
-        if: needs.resolve_state.outputs.need_build == 'true' && env.PUSH_LATEST_IMAGE == 'true'
+        if: needs.resolve_app_state.outputs.need_build == 'true' && env.PUSH_LATEST_IMAGE == 'true'
         shell: bash
         run: |
-          latest_ref="${{ needs.resolve_state.outputs.repository_url }}:latest"
-          docker tag "${{ needs.resolve_state.outputs.image_ref }}" "${latest_ref}"
+          latest_ref="${{ needs.resolve_app_state.outputs.repository_url }}:latest"
+          docker tag "${{ needs.resolve_app_state.outputs.image_ref }}" "${latest_ref}"
           ./scripts/push-image.sh "${latest_ref}"
 
       - name: Prepare image metadata
-        if: needs.resolve_state.outputs.need_release == 'true'
+        if: needs.resolve_app_state.outputs.need_release == 'true'
         shell: bash
         run: |
           mkdir -p target
@@ -388,26 +483,31 @@ jobs:
             echo "artifact=oficina-app"
             echo "version=${APP_VERSION}"
             echo "release=${RELEASE_TAG}"
-            echo "image=${{ needs.resolve_state.outputs.image_ref }}"
-            echo "repository=${{ needs.resolve_state.outputs.repository_url }}"
-            echo "tag=${{ needs.resolve_state.outputs.image_tag }}"
-            echo "commit=${{ needs.resolve_state.outputs.commit_sha }}"
+            echo "image=${{ needs.resolve_app_state.outputs.image_ref }}"
+            echo "repository=${{ needs.resolve_app_state.outputs.repository_url }}"
+            echo "tag=${{ needs.resolve_app_state.outputs.image_tag }}"
+            echo "commit=${{ needs.resolve_app_state.outputs.commit_sha }}"
           } > target/oficina-app-image.txt
 
       - name: Create GitHub release
-        if: needs.resolve_state.outputs.need_release == 'true'
+        if: needs.resolve_app_state.outputs.need_release == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "Release ${RELEASE_TAG} ja existe; seguindo de forma idempotente."
+            exit 0
+          fi
+
           gh release create "${RELEASE_TAG}" \
             target/oficina-app-image.txt \
-            --target "${{ needs.resolve_state.outputs.commit_sha }}" \
+            --target "${{ needs.resolve_app_state.outputs.commit_sha }}" \
             --title "${RELEASE_TAG}" \
-            --notes "Imagem oficina-app ${APP_VERSION}: ${{ needs.resolve_state.outputs.image_ref }}"
+            --notes "Imagem oficina-app ${APP_VERSION}: ${{ needs.resolve_app_state.outputs.image_ref }}"
 
       - name: Upload image metadata
-        if: needs.resolve_state.outputs.need_release == 'true'
+        if: needs.resolve_app_state.outputs.need_release == 'true'
         uses: actions/upload-artifact@v6
         with:
           name: oficina-app-image
@@ -415,61 +515,57 @@ jobs:
           if-no-files-found: error
 
       - name: Report no-op publish state
-        if: needs.resolve_state.outputs.need_build != 'true' && needs.resolve_state.outputs.need_release != 'true'
-        shell: bash
-        run: |
-          echo "Nenhum build ou release necessario para ${APP_VERSION}."
+        if: needs.resolve_app_state.outputs.need_build != 'true' && needs.resolve_app_state.outputs.need_release != 'true'
+        run: echo "Nenhum build, push de imagem ou release necessario para ${APP_VERSION}."
 
   deploy_app:
-    if: github.ref_name == 'main' && needs.resolve_state.outputs.version_bump_required != 'true' && needs.resolve_state.outputs.need_deploy == 'true'
+    if: github.ref_name == 'main' && needs.resolve_app_state.outputs.need_deploy == 'true'
     name: deploy-app
     runs-on: ubuntu-latest
     needs:
-      - resolve_state
+      - resolve_app_state
       - publish_artifacts
     permissions:
       contents: read
     environment:
       name: lab
     env:
+      API_GATEWAY_ID: ${{ vars.API_GATEWAY_ID || '' }}
+      API_GATEWAY_NAME: ${{ vars.API_GATEWAY_NAME || '' }}
       AWS_REGION: ${{ vars.AWS_REGION || 'us-east-1' }}
-      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'eks-lab' }}
-      IMAGE_REF: ${{ needs.resolve_state.outputs.image_ref }}
-      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
-      K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
-      K8S_CONTAINER_NAME: ${{ vars.K8S_CONTAINER_NAME || 'oficina-app' }}
-      K8S_ROLLOUT_TIMEOUT: ${{ vars.K8S_ROLLOUT_TIMEOUT || '300s' }}
       BOOTSTRAP_K8S_APP_IF_MISSING: ${{ vars.BOOTSTRAP_K8S_APP_IF_MISSING || 'true' }}
-      K8S_APP_OVERLAY: ${{ vars.K8S_APP_OVERLAY || 'k8s/overlays/lab' }}
-      K8S_DB_SECRET_NAME: ${{ vars.K8S_DB_SECRET_NAME || 'oficina-database-env' }}
-      K8S_DATABASE_SECRET_ID: ${{ vars.K8S_DATABASE_SECRET_ID || 'oficina/lab/database/app' }}
-      K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET: ${{ vars.K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET || 'true' }}
       DB_INSTANCE_IDENTIFIER: ${{ vars.DB_INSTANCE_IDENTIFIER || 'oficina-postgres-lab' }}
       DB_NAME: ${{ vars.DB_NAME || 'app' }}
-      K8S_JWT_SECRET_NAME: ${{ vars.K8S_JWT_SECRET_NAME || 'oficina-jwt-keys' }}
-      REQUIRE_K8S_DB_SECRET: ${{ vars.REQUIRE_K8S_DB_SECRET || 'true' }}
-      JWT_SECRET_SOURCE: ${{ vars.JWT_SECRET_SOURCE || 'aws-secrets-manager' }}
+      EKS_CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME || 'eks-lab' }}
+      IMAGE_REF: ${{ needs.resolve_app_state.outputs.image_ref }}
+      JWT_DIR: ${{ vars.JWT_DIR || '.tmp/jwt' }}
       JWT_SECRET_NAME: ${{ vars.JWT_SECRET_NAME || 'oficina/lab/jwt' }}
       JWT_SECRET_PRIVATE_KEY_FIELD: ${{ vars.JWT_SECRET_PRIVATE_KEY_FIELD || 'privateKeyPem' }}
       JWT_SECRET_PUBLIC_KEY_FIELD: ${{ vars.JWT_SECRET_PUBLIC_KEY_FIELD || 'publicKeyPem' }}
-      ROTATE_JWT_SECRET: ${{ vars.ROTATE_JWT_SECRET || 'false' }}
-      REGENERATE_JWT: ${{ vars.REGENERATE_JWT || 'false' }}
-      JWT_DIR: ${{ vars.JWT_DIR || '.tmp/jwt' }}
-      API_GATEWAY_ID: ${{ vars.API_GATEWAY_ID || '' }}
-      API_GATEWAY_NAME: ${{ vars.API_GATEWAY_NAME || '' }}
+      JWT_SECRET_SOURCE: ${{ vars.JWT_SECRET_SOURCE || 'aws-secrets-manager' }}
+      K8S_APP_OVERLAY: ${{ vars.K8S_APP_OVERLAY || 'k8s/overlays/lab' }}
+      K8S_CONTAINER_NAME: ${{ vars.K8S_CONTAINER_NAME || 'oficina-app' }}
+      K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET: ${{ vars.K8S_DATABASE_FALLBACK_TO_RDS_MASTER_SECRET || 'true' }}
+      K8S_DATABASE_SECRET_ID: ${{ vars.K8S_DATABASE_SECRET_ID || 'oficina/lab/database/app' }}
+      K8S_DB_SECRET_NAME: ${{ vars.K8S_DB_SECRET_NAME || 'oficina-database-env' }}
+      K8S_DEPLOYMENT_NAME: ${{ vars.K8S_DEPLOYMENT_NAME || 'oficina-app' }}
+      K8S_JWT_SECRET_NAME: ${{ vars.K8S_JWT_SECRET_NAME || 'oficina-jwt-keys' }}
+      K8S_NAMESPACE: ${{ vars.K8S_NAMESPACE || 'default' }}
+      K8S_ROLLOUT_TIMEOUT: ${{ vars.K8S_ROLLOUT_TIMEOUT || '300s' }}
+      OFICINA_AUTH_FORCE_LEGACY: ${{ vars.OFICINA_AUTH_FORCE_LEGACY || 'false' }}
       OFICINA_AUTH_ISSUER: ${{ vars.OFICINA_AUTH_ISSUER || '' }}
       OFICINA_AUTH_JWKS_URI: ${{ vars.OFICINA_AUTH_JWKS_URI || '' }}
-      OFICINA_AUTH_FORCE_LEGACY: ${{ vars.OFICINA_AUTH_FORCE_LEGACY || 'false' }}
+      REGENERATE_JWT: ${{ vars.REGENERATE_JWT || 'false' }}
+      REQUIRE_K8S_DB_SECRET: ${{ vars.REQUIRE_K8S_DB_SECRET || 'true' }}
+      ROTATE_JWT_SECRET: ${{ vars.ROTATE_JWT_SECRET || 'false' }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
-          ref: ${{ needs.resolve_state.outputs.commit_sha }}
+          ref: ${{ needs.resolve_app_state.outputs.commit_sha }}
 
       - name: Setup kubectl
         uses: azure/setup-kubectl@v5
-        with:
-          version: latest
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v6.1.0
@@ -485,13 +581,17 @@ jobs:
           ./scripts/deploy-k8s.sh
 
   report_noop:
-    if: github.ref_name == 'main' && needs.resolve_state.outputs.version_bump_required != 'true' && needs.resolve_state.outputs.need_build != 'true' && needs.resolve_state.outputs.need_release != 'true' && needs.resolve_state.outputs.need_deploy != 'true'
+    if: >
+      github.ref_name == 'main' &&
+      needs.resolve_app_state.outputs.need_build != 'true' &&
+      needs.resolve_app_state.outputs.need_release != 'true' &&
+      needs.resolve_app_state.outputs.need_deploy != 'true'
     name: report-noop
     runs-on: ubuntu-latest
     needs:
-      - resolve_state
+      - resolve_app_state
       - publish_artifacts
     steps:
       - name: Report no-op
         run: |
-          echo "Versao ${{ needs.resolve_state.outputs.current_version }} ja possui imagem no ECR, release criada e deployment alinhado no EKS."
+          echo "Versao ${{ needs.resolve_app_state.outputs.current_version }} ja possui release, imagem no ECR e deployment alinhado no EKS."

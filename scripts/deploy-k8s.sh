@@ -294,6 +294,7 @@ stringData:
   QUARKUS_DATASOURCE_PASSWORD: ${db_password}
   QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://${db_host}:${db_port}/${db_name}?sslmode=${db_sslmode}
   QUARKUS_DATASOURCE_REACTIVE_POSTGRESQL_SSL_MODE: ${db_sslmode}
+  QUARKUS_DATASOURCE_REACTIVE_TRUST_ALL: "true"
 EOF
 }
 
