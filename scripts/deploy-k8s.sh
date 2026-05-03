@@ -272,30 +272,28 @@ apply_db_secret_from_aws() {
   fi
 
   log "Aplicando secret ${K8S_NAMESPACE}/${K8S_DB_SECRET_NAME} a partir do Secrets Manager ${secret_id}"
-  kubectl apply -f - <<EOF
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ${K8S_DB_SECRET_NAME}
-  namespace: ${K8S_NAMESPACE}
-  labels:
-    app.kubernetes.io/name: postgres
-    app.kubernetes.io/component: database
-    app.kubernetes.io/part-of: oficina
-type: Opaque
-stringData:
-  POSTGRES_DB: ${db_name}
-  POSTGRES_USER: ${db_user}
-  POSTGRES_PASSWORD: ${db_password}
-  POSTGRES_SSLMODE: ${db_sslmode}
-  DB_SSLMODE: ${db_sslmode}
-  QUARKUS_DATASOURCE_DB_KIND: postgresql
-  QUARKUS_DATASOURCE_USERNAME: ${db_user}
-  QUARKUS_DATASOURCE_PASSWORD: ${db_password}
-  QUARKUS_DATASOURCE_REACTIVE_URL: postgresql://${db_host}:${db_port}/${db_name}?sslmode=${db_sslmode}
-  QUARKUS_DATASOURCE_REACTIVE_POSTGRESQL_SSL_MODE: ${db_sslmode}
-  QUARKUS_DATASOURCE_REACTIVE_TRUST_ALL: "true"
-EOF
+  kubectl create secret generic "${K8S_DB_SECRET_NAME}" \
+    --namespace "${K8S_NAMESPACE}" \
+    --from-literal="POSTGRES_DB=${db_name}" \
+    --from-literal="POSTGRES_USER=${db_user}" \
+    --from-literal="POSTGRES_PASSWORD=${db_password}" \
+    --from-literal="POSTGRES_SSLMODE=${db_sslmode}" \
+    --from-literal="DB_SSLMODE=${db_sslmode}" \
+    --from-literal="QUARKUS_DATASOURCE_DB_KIND=postgresql" \
+    --from-literal="QUARKUS_DATASOURCE_USERNAME=${db_user}" \
+    --from-literal="QUARKUS_DATASOURCE_PASSWORD=${db_password}" \
+    --from-literal="QUARKUS_DATASOURCE_REACTIVE_URL=postgresql://${db_host}:${db_port}/${db_name}?sslmode=${db_sslmode}" \
+    --from-literal="QUARKUS_DATASOURCE_REACTIVE_POSTGRESQL_SSL_MODE=${db_sslmode}" \
+    --from-literal="QUARKUS_DATASOURCE_REACTIVE_TRUST_ALL=true" \
+    --dry-run=client \
+    -o yaml | kubectl apply -f -
+
+  kubectl label secret "${K8S_DB_SECRET_NAME}" \
+    --namespace "${K8S_NAMESPACE}" \
+    app.kubernetes.io/name=postgres \
+    app.kubernetes.io/component=database \
+    app.kubernetes.io/part-of=oficina \
+    --overwrite
 }
 
 dump_rollout_diagnostics() {
