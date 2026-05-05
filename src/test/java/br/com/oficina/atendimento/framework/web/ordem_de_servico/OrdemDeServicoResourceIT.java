@@ -423,6 +423,20 @@ class OrdemDeServicoResourceIT {
     }
 
     @Test
+    void deveRetornarNotFoundAoCriarOrdemDeServicoComVeiculoInexistenteTest() {
+        var placaInexistente = "DEF9999";
+
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new OrdemDeServicoCommandController.CriarOrdemDeServicoRequest(
+                        "50132372037",
+                        placaInexistente))
+                .when().post("/ordem-de-servico")
+                .then().statusCode(404)
+                .body("message", Matchers.equalTo("Veículo não encontrado para a placa informada: " + placaInexistente));
+    }
+
+    @Test
     void deveEntregarComSucessoTest() {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .when().post("/ordem-de-servico/7b2276e8-fa72-4f4c-a3b0-2c5b1bf427ef/entregar")

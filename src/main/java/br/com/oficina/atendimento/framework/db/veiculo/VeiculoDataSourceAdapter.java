@@ -4,6 +4,7 @@ import br.com.oficina.atendimento.core.entities.veiculo.MarcaDeVeiculo;
 import br.com.oficina.atendimento.core.entities.veiculo.ModeloDeVeiculo;
 import br.com.oficina.atendimento.core.entities.veiculo.PlacaDeVeiculo;
 import br.com.oficina.atendimento.core.entities.veiculo.Veiculo;
+import br.com.oficina.atendimento.core.exceptions.VeiculoNaoEncontradoException;
 import br.com.oficina.atendimento.core.interfaces.gateway.VeiculoGateway;
 import jakarta.enterprise.context.ApplicationScoped;
 
@@ -15,6 +16,7 @@ public class VeiculoDataSourceAdapter implements VeiculoGateway {
 
     @Override public CompletableFuture<Veiculo> buscarPorPlaca(PlacaDeVeiculo placaDeVeiculo) {
         return VeiculoEntity.buscarPorPlaca(placaDeVeiculo)
+                .onItem().ifNull().failWith(() -> new VeiculoNaoEncontradoException(placaDeVeiculo.valor()))
                 .map(VeiculoDataSourceAdapter::toDomain)
                 .subscribeAsCompletionStage();
     }
@@ -27,6 +29,7 @@ public class VeiculoDataSourceAdapter implements VeiculoGateway {
 
     @Override public CompletableFuture<Veiculo> buscarPorId(long id) {
         return VeiculoEntity.buscaPorId(id)
+                .onItem().ifNull().failWith(() -> new VeiculoNaoEncontradoException(id))
                 .map(VeiculoDataSourceAdapter::toDomain)
                 .subscribeAsCompletionStage();
     }
