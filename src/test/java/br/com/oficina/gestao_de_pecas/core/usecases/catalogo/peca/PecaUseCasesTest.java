@@ -13,6 +13,7 @@ import java.util.concurrent.CompletionException;
 import java.util.function.Consumer;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -41,6 +42,7 @@ class PecaUseCasesTest {
         verify(estoqueGateway).adicionar(estoqueCaptor.capture());
         assertEquals("Filtro de óleo", pecaCaptor.getValue().nome());
         assertEquals(101L, estoqueCaptor.getValue().pecaId());
+        assertNull(estoqueCaptor.getValue().movimento());
     }
 
     @Test

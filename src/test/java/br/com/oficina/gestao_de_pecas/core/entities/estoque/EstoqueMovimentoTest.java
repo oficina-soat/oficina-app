@@ -14,12 +14,12 @@ class EstoqueMovimentoTest {
     void deveReterDadosDoMovimento() {
         var osId = UUID.randomUUID();
         var data = Instant.now();
-        var movimento = new EstoqueMovimento(1L, osId, MovimentoTipo.SAIDA, new BigDecimal("-2"), data, "Consumo");
+        var movimento = new EstoqueMovimento(1L, osId, MovimentoTipo.SAIDA, new BigDecimal("2"), data, "Consumo");
 
         assertEquals(1L, movimento.pecaId());
         assertEquals(osId, movimento.ordemDeServicoId());
         assertEquals(MovimentoTipo.SAIDA, movimento.tipo());
-        assertEquals(new BigDecimal("-2"), movimento.quantidade());
+        assertEquals(new BigDecimal("2"), movimento.quantidade());
         assertEquals(data, movimento.data());
         assertEquals("Consumo", movimento.observacao());
     }
