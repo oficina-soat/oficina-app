@@ -17,16 +17,7 @@ public class Estoque {
     }
 
     public static Estoque criaNovo(long pecaId) {
-        var estoque = new Estoque(pecaId, BigDecimal.ZERO);
-        estoque.setMovimento(
-                new EstoqueMovimento(
-                        estoque.pecaId(),
-                        null,
-                        MovimentoTipo.ENTRADA,
-                        estoque.saldo(),
-                        Instant.now(),
-                        "Criação de peça"));
-        return estoque;
+        return new Estoque(pecaId, BigDecimal.ZERO);
     }
 
     public static Estoque reconstitui(long pecaId, BigDecimal saldo) {
@@ -55,6 +46,7 @@ public class Estoque {
             BigDecimal quantidade,
             UUID ordemDeServicoId,
             String observacao) {
+        validarQuantidadePositiva(quantidade);
         if (saldo.compareTo(quantidade) < 0) {
             throw new PecaSemSaldoNoEstoqueException();
         }
@@ -64,7 +56,7 @@ public class Estoque {
                         pecaId,
                         ordemDeServicoId,
                         MovimentoTipo.SAIDA,
-                        quantidade.multiply(BigDecimal.valueOf(-1)),
+                        quantidade,
                         Instant.now(),
                         observacao));
     }
@@ -72,6 +64,7 @@ public class Estoque {
     public void registrarAcrescimo(
             BigDecimal quantidade,
             String observacao) {
+        validarQuantidadePositiva(quantidade);
         saldo = saldo.add(quantidade);
         setMovimento(
                 new EstoqueMovimento(
@@ -81,5 +74,11 @@ public class Estoque {
                         quantidade,
                         Instant.now(),
                         observacao));
+    }
+
+    private void validarQuantidadePositiva(BigDecimal quantidade) {
+        if (quantidade == null || quantidade.signum() <= 0) {
+            throw new IllegalArgumentException("Quantidade deve ser maior que zero");
+        }
     }
 }

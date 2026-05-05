@@ -5,6 +5,8 @@ import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OrdemDe
 import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoCommandController;
 import br.com.oficina.common.tests.Helpers;
 import br.com.oficina.common.web.TipoDePapel;
+import br.com.oficina.gestao_de_pecas.core.entities.estoque.MovimentoTipo;
+import br.com.oficina.gestao_de_pecas.framework.db.estoque.entities.EstoqueMovimentoEntity;
 import br.com.oficina.gestao_de_pecas.framework.db.estoque.entities.EstoqueSaldoEntity;
 import br.com.oficina.gestao_de_pecas.interfaces.controllers.EstoqueController;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -211,6 +213,17 @@ class OrdemDeServicoResourceIT {
                 EstoqueSaldoEntity.buscaPorId(1)
                         .invoke(estoqueSaldoEntity ->
                                 Assertions.assertEquals(new BigDecimal("48.000"), estoqueSaldoEntity.quantidade)));
+        asserter.execute(() ->
+                EstoqueMovimentoEntity.<EstoqueMovimentoEntity>find(
+                                "ordemServicoId = ?1 and pecaId = ?2 and tipo = ?3",
+                                UUID.fromString(ordemDeServicoId),
+                                1L,
+                                MovimentoTipo.SAIDA)
+                        .firstResult()
+                        .invoke(estoqueMovimentoEntity -> {
+                            Assertions.assertNotNull(estoqueMovimentoEntity);
+                            Assertions.assertEquals(new BigDecimal("2.000"), estoqueMovimentoEntity.quantidade);
+                        }));
     }
 
     @Test
@@ -420,6 +433,20 @@ class OrdemDeServicoResourceIT {
                 .when().post("/ordem-de-servico")
                 .then().statusCode(404)
                 .body("message", Matchers.equalTo("Cliente não encontrado para o documento informado: " + cpfInexistente));
+    }
+
+    @Test
+    void deveRetornarNotFoundAoCriarOrdemDeServicoComVeiculoInexistenteTest() {
+        var placaInexistente = "DEF9999";
+
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new OrdemDeServicoCommandController.CriarOrdemDeServicoRequest(
+                        "50132372037",
+                        placaInexistente))
+                .when().post("/ordem-de-servico")
+                .then().statusCode(404)
+                .body("message", Matchers.equalTo("Veículo não encontrado para a placa informada: " + placaInexistente));
     }
 
     @Test

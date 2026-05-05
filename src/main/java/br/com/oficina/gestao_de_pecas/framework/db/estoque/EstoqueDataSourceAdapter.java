@@ -16,7 +16,7 @@ public class EstoqueDataSourceAdapter implements EstoqueGateway {
 
     @Override public CompletableFuture<Void> adicionar(Estoque estoque) {
         return toEntity(estoque).persistir()
-                .replaceWith(toEntity(estoque.movimento()).persistir())
+                .chain(_ -> persistirMovimentoSeExistir(estoque.movimento()))
                 .replaceWithVoid()
                 .subscribeAsCompletionStage();
     }
@@ -35,6 +35,14 @@ public class EstoqueDataSourceAdapter implements EstoqueGateway {
                 })
                 .replaceWithVoid()
                 .subscribeAsCompletionStage();
+    }
+
+    private Uni<Void> persistirMovimentoSeExistir(EstoqueMovimento movimento) {
+        if (movimento == null) {
+            return Uni.createFrom().voidItem();
+        }
+        return toEntity(movimento).persistir()
+                .replaceWithVoid();
     }
 
     private Uni<EstoqueSaldoEntity> buscaOuCriaSaldo(long pecaId) {

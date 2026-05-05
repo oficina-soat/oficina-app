@@ -14,13 +14,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class EstoqueTest {
 
     @Test
-    void deveCriarNovoComSaldoZeroEMovimentoInicial() {
+    void deveCriarNovoComSaldoZeroSemMovimentoInicial() {
         var estoque = Estoque.criaNovo(7L);
 
         assertEquals(7L, estoque.pecaId());
         assertEquals(BigDecimal.ZERO, estoque.saldo());
-        assertNotNull(estoque.movimento());
-        assertEquals(MovimentoTipo.ENTRADA, estoque.movimento().tipo());
+        assertNull(estoque.movimento());
     }
 
     @Test
@@ -46,10 +45,40 @@ class EstoqueTest {
     }
 
     @Test
+    void deveRegistrarBaixaComMovimentoDeSaidaPositivo() {
+        var ordemDeServicoId = UUID.randomUUID();
+        var estoque = Estoque.reconstitui(9L, new BigDecimal("10"));
+
+        estoque.registrarBaixa(new BigDecimal("3"), ordemDeServicoId, "Consumo OS");
+
+        assertEquals(new BigDecimal("7"), estoque.saldo());
+        assertNotNull(estoque.movimento());
+        assertEquals(MovimentoTipo.SAIDA, estoque.movimento().tipo());
+        assertEquals(new BigDecimal("3"), estoque.movimento().quantidade());
+        assertEquals(ordemDeServicoId, estoque.movimento().ordemDeServicoId());
+    }
+
+    @Test
     void deveLancarQuandoSemSaldo() {
         var estoque = Estoque.reconstitui(10L, new BigDecimal("1"));
 
         assertThrows(PecaSemSaldoNoEstoqueException.class,
                 () -> estoque.registrarBaixa(new BigDecimal("2"), UUID.randomUUID(), "Consumo OS"));
+    }
+
+    @Test
+    void deveLancarQuandoQuantidadeDeBaixaNaoForPositiva() {
+        var estoque = Estoque.reconstitui(10L, new BigDecimal("1"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> estoque.registrarBaixa(BigDecimal.ZERO, UUID.randomUUID(), "Consumo OS"));
+    }
+
+    @Test
+    void deveLancarQuandoQuantidadeDeAcrescimoNaoForPositiva() {
+        var estoque = Estoque.reconstitui(10L, new BigDecimal("1"));
+
+        assertThrows(IllegalArgumentException.class,
+                () -> estoque.registrarAcrescimo(BigDecimal.ZERO, "Compra"));
     }
 }
