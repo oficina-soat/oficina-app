@@ -1,5 +1,6 @@
 package br.com.oficina.atendimento.framework.db.ordem_de_servico;
 
+import br.com.oficina.atendimento.core.entities.ordem_de_servico.ItemServico;
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.OrdemDeServicoFactory;
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.TipoDeEstadoDaOrdemDeServico;
 import br.com.oficina.atendimento.core.exceptions.OrdemDeServicoNaoEncontradaException;
@@ -79,6 +80,27 @@ class OrdemDeServicoDataSourceAdapterTest {
         assertEquals(1, entity.historicoDeEstados.size());
         assertEquals(1, entity.pecas.size());
         assertEquals(1, entity.servicos.size());
+        assertEquals(2L, entity.servicos.iterator().next().servicoId);
+    }
+
+    @Test
+    void deveMapearServicoUsandoIdDoCatalogoENaoIdDoItemDaOrdem() throws Exception {
+        var entity = new OrdemDeServicoEntity();
+        entity.servicos = new HashSet<>();
+
+        var itemServicoEntity = new OsItemServicoEntity();
+        itemServicoEntity.id = 51L;
+        itemServicoEntity.servicoId = 1L;
+        itemServicoEntity.servicoNome = "Troca de oleo";
+        itemServicoEntity.quantidade = BigDecimal.ONE;
+        itemServicoEntity.valorUnitario = BigDecimal.TEN;
+        entity.servicos.add(itemServicoEntity);
+
+        @SuppressWarnings("unchecked")
+        var servicos = (List<ItemServico>) method("getServicos", OrdemDeServicoEntity.class)
+                .invoke(null, entity);
+
+        assertEquals(1L, servicos.getFirst().id());
     }
 
     @Test

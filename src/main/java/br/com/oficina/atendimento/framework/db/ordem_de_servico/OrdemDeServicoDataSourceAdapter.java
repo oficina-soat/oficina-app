@@ -187,7 +187,7 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
                 ordemDeServicoEntity.servicos.stream()
                         .map(osItemServicoEntity ->
                                 new ItemServico(
-                                        osItemServicoEntity.id,
+                                        osItemServicoEntity.servicoId,
                                         osItemServicoEntity.servicoNome,
                                         osItemServicoEntity.quantidade,
                                         osItemServicoEntity.valorUnitario))
