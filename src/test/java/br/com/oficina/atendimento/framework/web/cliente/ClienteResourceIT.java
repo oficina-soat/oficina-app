@@ -48,6 +48,24 @@ class ClienteResourceIT {
     }
 
     @Test
+    void deveIncluirClienteComPayloadInformadoComSucesso() {
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new ClienteCommandController.ClienteRequest("988.193.590-30", "cliente1@gmail.com"))
+        .when().post("/clientes")
+        .then().statusCode(204);
+    }
+
+    @Test
+    void deveRetornarBadRequestQuandoClienteJaExiste() {
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new ClienteCommandController.ClienteRequest("50132372037", "outro-email@cliente.com"))
+        .when().post("/clientes")
+        .then().statusCode(400);
+    }
+
+    @Test
     void deveIncluirClienteComCnpjComSucesso() {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .contentType(ContentType.JSON)
