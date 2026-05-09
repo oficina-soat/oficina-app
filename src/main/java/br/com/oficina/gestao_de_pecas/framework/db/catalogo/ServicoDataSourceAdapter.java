@@ -1,8 +1,10 @@
 package br.com.oficina.gestao_de_pecas.framework.db.catalogo;
 
 import br.com.oficina.gestao_de_pecas.core.entities.catalogo.Servico;
+import br.com.oficina.gestao_de_pecas.core.exceptions.ServicoNaoEncontradoException;
 import br.com.oficina.gestao_de_pecas.core.interfaces.ServicoGateway;
 import br.com.oficina.gestao_de_pecas.framework.db.catalogo.entities.ServicoEntity;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.concurrent.CompletableFuture;
@@ -19,12 +21,14 @@ public class ServicoDataSourceAdapter implements ServicoGateway {
 
     @Override public CompletableFuture<Servico> buscarPorId(long id) {
         return ServicoEntity.buscaPorId(id)
+                .onItem().ifNull().failWith(() -> new ServicoNaoEncontradoException(id))
                 .map(ServicoDataSourceAdapter::toDomain)
                 .subscribeAsCompletionStage();
     }
 
     @Override public CompletableFuture<Void> buscaParaAtualizar(long id, Consumer<Servico> atualizacao) {
         return ServicoEntity.buscaParaAtualizar(id)
+                .onItem().ifNull().failWith(() -> new ServicoNaoEncontradoException(id))
                 .onItem().ifNotNull().invoke(servicoEntity -> {
                     var servicoAtual = toDomain(servicoEntity);
                     atualizacao.accept(servicoAtual);
@@ -36,7 +40,9 @@ public class ServicoDataSourceAdapter implements ServicoGateway {
 
     @Override public CompletableFuture<Void> apagar(long id) {
         return ServicoEntity.apagar(id)
-                .replaceWithVoid()
+                .flatMap(apagou -> apagou
+                        ? Uni.createFrom().voidItem()
+                        : Uni.createFrom().failure(new ServicoNaoEncontradoException(id)))
                 .subscribeAsCompletionStage();
     }
 
