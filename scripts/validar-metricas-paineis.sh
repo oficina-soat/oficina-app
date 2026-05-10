@@ -1,0 +1,506 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+TMP_DIR="${ROOT_DIR}/.tmp/validar-metricas-paineis"
+PF_DIR="${ROOT_DIR}/.tmp/port-forward"
+
+APP_NAMESPACE="${APP_NAMESPACE:-default}"
+APP_SERVICE="${APP_SERVICE:-oficina-app}"
+APP_LOCAL_PORT="${APP_LOCAL_PORT:-8080}"
+APP_SERVICE_PORT="${APP_SERVICE_PORT:-8080}"
+ENABLE_PORT_FORWARD="${ENABLE_PORT_FORWARD:-true}"
+STOP_PORT_FORWARD_ON_EXIT="${STOP_PORT_FORWARD_ON_EXIT:-false}"
+
+APP_BASE_URL="${APP_BASE_URL:-http://localhost:${APP_LOCAL_PORT}}"
+AUTH_MODE="${AUTH_MODE:-auto}"
+AUTH_BASE_URL="${OFICINA_AUTH_BASE_URL:-${AUTH_BASE_URL:-}}"
+AUTH_PASSWORD="${AUTH_PASSWORD:-secret}"
+AUTH_ADMIN_CPF="${AUTH_ADMIN_CPF:-84191404067}"
+AUTH_MECANICO_CPF="${AUTH_MECANICO_CPF:-36655462007}"
+AUTH_RECEPCIONISTA_CPF="${AUTH_RECEPCIONISTA_CPF:-17245011010}"
+SKIP_MAGIC_LINK="${SKIP_MAGIC_LINK:-false}"
+
+RUN_SEED="${RUN_SEED:-$(date +%s)${RANDOM}}"
+RUN_LABEL="${RUN_LABEL:-metrics-${RUN_SEED}}"
+
+ADMIN_TOKEN=""
+MECANICO_TOKEN=""
+RECEPCIONISTA_TOKEN=""
+LAST_BODY=""
+STARTED_PF_PID=""
+
+usage() {
+  cat <<EOF
+Uso:
+  ./scripts/validar-metricas-paineis.sh
+
+Objetivo:
+  Gera trafego HTTP para validar APIs, ciclo de vida da OS, metricas Prometheus
+  e dashboards que usam as metricas/logs do laboratorio.
+
+Variaveis principais:
+  APP_BASE_URL              Base da aplicacao. Default: http://localhost:8080
+  ENABLE_PORT_FORWARD       true|false. Default: true
+  APP_NAMESPACE             Namespace Kubernetes. Default: default
+  APP_SERVICE               Service Kubernetes. Default: oficina-app
+  APP_LOCAL_PORT            Porta local do port-forward. Default: 8080
+  AUTH_MODE                 auto|auth-api|dev-jwt. Default: auto
+  OFICINA_AUTH_BASE_URL     Base do auth/API Gateway para POST /auth/token
+  AUTH_PASSWORD             Senha dos usuarios seed do lab. Default: secret
+  SKIP_MAGIC_LINK           true|false. Default: false
+  STOP_PORT_FORWARD_ON_EXIT true|false. Default: false
+
+Exemplos:
+  OFICINA_AUTH_BASE_URL=https://example.execute-api.us-east-1.amazonaws.com ./scripts/validar-metricas-paineis.sh
+  AUTH_MODE=dev-jwt ./scripts/validar-metricas-paineis.sh
+EOF
+}
+
+log() {
+  printf '[validar] %s\n' "$*" >&2
+}
+
+fail() {
+  printf '[validar][erro] %s\n' "$*" >&2
+  exit 1
+}
+
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 || fail "Comando obrigatorio nao encontrado: $1"
+}
+
+local_port_open() {
+  local port="$1"
+  bash -c ":</dev/tcp/127.0.0.1/${port}" >/dev/null 2>&1
+}
+
+pid_is_port_forward() {
+  local pid="$1"
+  local command_line
+  command_line="$(ps -p "${pid}" -o command= 2>/dev/null || true)"
+  [[ "${command_line}" == *"kubectl"* && "${command_line}" == *"port-forward"* && "${command_line}" == *"svc/${APP_SERVICE}"* ]]
+}
+
+wait_for_port() {
+  local port="$1"
+  local pid="$2"
+  local log_file="$3"
+
+  for _ in {1..20}; do
+    if [[ -n "${pid}" ]] && ! kill -0 "${pid}" >/dev/null 2>&1; then
+      tail -40 "${log_file}" >&2 || true
+      fail "Falha ao iniciar port-forward para ${APP_NAMESPACE}/${APP_SERVICE}."
+    fi
+    if local_port_open "${port}"; then
+      return 0
+    fi
+    sleep 1
+  done
+
+  tail -40 "${log_file}" >&2 || true
+  fail "Porta local ${port} nao ficou acessivel."
+}
+
+start_port_forward() {
+  [[ "${ENABLE_PORT_FORWARD}" == "true" ]] || return 0
+
+  require_cmd kubectl
+  mkdir -p "${PF_DIR}"
+
+  local pid_file="${PF_DIR}/${APP_SERVICE}.pid"
+  local log_file="${PF_DIR}/${APP_SERVICE}.log"
+
+  if [[ -f "${pid_file}" ]]; then
+    local existing_pid
+    existing_pid="$(cat "${pid_file}")"
+    if kill -0 "${existing_pid}" >/dev/null 2>&1 && pid_is_port_forward "${existing_pid}" && local_port_open "${APP_LOCAL_PORT}"; then
+      log "Port-forward ja ativo para ${APP_NAMESPACE}/${APP_SERVICE} em ${APP_BASE_URL} (pid ${existing_pid})."
+      return 0
+    fi
+    rm -f "${pid_file}"
+  fi
+
+  if local_port_open "${APP_LOCAL_PORT}"; then
+    log "Porta local ${APP_LOCAL_PORT} ja esta aberta; usando ${APP_BASE_URL} sem iniciar novo port-forward."
+    return 0
+  fi
+
+  kubectl get svc "${APP_SERVICE}" --namespace "${APP_NAMESPACE}" >/dev/null 2>&1 \
+    || fail "Service ${APP_NAMESPACE}/${APP_SERVICE} nao encontrado ou cluster inacessivel."
+
+  log "Iniciando port-forward ${APP_NAMESPACE}/${APP_SERVICE} ${APP_LOCAL_PORT}:${APP_SERVICE_PORT}."
+  : > "${log_file}"
+  if command -v setsid >/dev/null 2>&1; then
+    setsid kubectl --namespace "${APP_NAMESPACE}" port-forward "svc/${APP_SERVICE}" "${APP_LOCAL_PORT}:${APP_SERVICE_PORT}" >"${log_file}" 2>&1 &
+  else
+    nohup kubectl --namespace "${APP_NAMESPACE}" port-forward "svc/${APP_SERVICE}" "${APP_LOCAL_PORT}:${APP_SERVICE_PORT}" >"${log_file}" 2>&1 &
+  fi
+
+  STARTED_PF_PID="$!"
+  echo "${STARTED_PF_PID}" > "${pid_file}"
+  wait_for_port "${APP_LOCAL_PORT}" "${STARTED_PF_PID}" "${log_file}"
+  log "Port-forward ativo em ${APP_BASE_URL}. Logs: ${log_file}"
+}
+
+cleanup() {
+  if [[ "${STOP_PORT_FORWARD_ON_EXIT}" == "true" && -n "${STARTED_PF_PID}" ]]; then
+    kill "${STARTED_PF_PID}" >/dev/null 2>&1 || true
+    rm -f "${PF_DIR}/${APP_SERVICE}.pid"
+  fi
+}
+
+curl_request() {
+  local method="$1"
+  local url="$2"
+  local expected_status="$3"
+  local token="${4:-}"
+  local body="${5:-}"
+  local content_type="${6:-application/json}"
+  local response_file="${TMP_DIR}/response.$$"
+  local status
+  local request_id="${RUN_LABEL}-$(date +%s%N)"
+  local args=(-sS -o "${response_file}" -w "%{http_code}" -X "${method}" -H "X-Request-Id: ${request_id}")
+
+  if [[ -n "${token}" ]]; then
+    args+=(-H "Authorization: Bearer ${token}")
+  fi
+
+  if [[ -n "${body}" ]]; then
+    args+=(-H "Content-Type: ${content_type}" --data "${body}")
+  fi
+
+  status="$(curl "${args[@]}" "${url}")" || {
+    cat "${response_file}" >&2 2>/dev/null || true
+    fail "Falha de rede em ${method} ${url}"
+  }
+
+  LAST_BODY="$(cat "${response_file}")"
+  rm -f "${response_file}"
+
+  if [[ "${status}" != "${expected_status}" ]]; then
+    printf '%s\n' "${LAST_BODY}" >&2
+    fail "${method} ${url} retornou HTTP ${status}; esperado ${expected_status}."
+  fi
+
+  log "HTTP ${status} ${method} ${url}"
+}
+
+api() {
+  local method="$1"
+  local path="$2"
+  local expected_status="$3"
+  local token="${4:-}"
+  local body="${5:-}"
+  local content_type="${6:-application/json}"
+  curl_request "${method}" "${APP_BASE_URL}${path}" "${expected_status}" "${token}" "${body}" "${content_type}"
+}
+
+auth_api_token() {
+  local cpf="$1"
+  local body
+  body="$(jq -cn --arg cpf "${cpf}" --arg password "${AUTH_PASSWORD}" '{cpf:$cpf,password:$password}')"
+  curl_request "POST" "${AUTH_BASE_URL%/}/auth/token" "200" "" "${body}"
+  jq -er '.access_token' <<<"${LAST_BODY}"
+}
+
+dev_jwt_token() {
+  local cpf="$1"
+  local roles="$2"
+  "${ROOT_DIR}/scripts/generate-dev-jwt-token.sh" --subject "${cpf}" --roles "${roles}" --ttl 7200
+}
+
+authenticate() {
+  case "${AUTH_MODE}" in
+    auto)
+      if [[ -n "${AUTH_BASE_URL}" ]]; then
+        AUTH_MODE="auth-api"
+      else
+        AUTH_MODE="dev-jwt"
+      fi
+      ;;
+    auth-api|dev-jwt)
+      ;;
+    *)
+      fail "AUTH_MODE deve ser auto, auth-api ou dev-jwt."
+      ;;
+  esac
+
+  if [[ "${AUTH_MODE}" == "auth-api" ]]; then
+    [[ -n "${AUTH_BASE_URL}" ]] || fail "AUTH_MODE=auth-api exige OFICINA_AUTH_BASE_URL ou AUTH_BASE_URL."
+    log "Autenticando via ${AUTH_BASE_URL%/}/auth/token."
+    ADMIN_TOKEN="$(auth_api_token "${AUTH_ADMIN_CPF}")"
+    MECANICO_TOKEN="$(auth_api_token "${AUTH_MECANICO_CPF}")"
+    RECEPCIONISTA_TOKEN="$(auth_api_token "${AUTH_RECEPCIONISTA_CPF}")"
+  else
+    log "Gerando JWTs locais de desenvolvimento."
+    ADMIN_TOKEN="$(dev_jwt_token "${AUTH_ADMIN_CPF}" "administrativo,mecanico,recepcionista")"
+    MECANICO_TOKEN="$(dev_jwt_token "${AUTH_MECANICO_CPF}" "mecanico")"
+    RECEPCIONISTA_TOKEN="$(dev_jwt_token "${AUTH_RECEPCIONISTA_CPF}" "recepcionista")"
+  fi
+}
+
+cpf_from_seed() {
+  local seed="$1"
+  local base
+  local sum=0
+  local digit
+  local d1
+  local d2
+
+  base="$(printf '%09d' "$((10#${seed} % 1000000000))")"
+  if [[ "${base}" =~ ^([0-9])\1{8}$ ]]; then
+    base="123${base:3:6}"
+  fi
+
+  for i in {0..8}; do
+    digit="${base:i:1}"
+    sum=$((sum + 10#${digit} * (10 - i)))
+  done
+  d1=$((sum % 11))
+  if (( d1 < 2 )); then d1=0; else d1=$((11 - d1)); fi
+
+  sum=0
+  for i in {0..8}; do
+    digit="${base:i:1}"
+    sum=$((sum + 10#${digit} * (11 - i)))
+  done
+  sum=$((sum + d1 * 2))
+  d2=$((sum % 11))
+  if (( d2 < 2 )); then d2=0; else d2=$((11 - d2)); fi
+
+  printf '%s%s%s' "${base}" "${d1}" "${d2}"
+}
+
+plate_from_seed() {
+  local seed="$1"
+  local n=$((10#${seed} % 100000))
+  local letters=(A B C D E F G H I J K L M N O P Q R S T U V W X Y Z)
+  printf 'MTR%d%s%02d' "$((n % 10))" "${letters[$((n % 26))]}" "$(((n / 10) % 100))"
+}
+
+json_id_by_field() {
+  local field="$1"
+  local value="$2"
+  jq -er --arg field "${field}" --arg value "${value}" '.[] | select(.[$field] == $value) | .id' <<<"${LAST_BODY}" | head -n 1
+}
+
+assert_json_field() {
+  local expression="$1"
+  jq -e "${expression}" <<<"${LAST_BODY}" >/dev/null || fail "Resposta JSON nao satisfez: ${expression}"
+}
+
+assert_metric() {
+  local metric="$1"
+  grep -q "${metric}" <<<"${LAST_BODY}" || fail "Metrica ${metric} nao encontrada em /q/metrics."
+}
+
+path_from_url() {
+  local url="$1"
+  if [[ "${url}" == http://* || "${url}" == https://* ]]; then
+    printf '/%s' "${url#*://*/}"
+  else
+    printf '%s' "${url}"
+  fi
+}
+
+test_public_and_security() {
+  log "Validando endpoints publicos e seguranca."
+  api GET "/q/health/live" 200
+  api GET "/q/health/ready" 200
+  api GET "/q/openapi" 200
+  api GET "/q/metrics" 200
+  [[ -n "${LAST_BODY}" ]] || fail "/q/metrics retornou corpo vazio."
+
+  api GET "/usuarios" 401
+  api GET "/usuarios" 403 "${RECEPCIONISTA_TOKEN}"
+}
+
+test_common_apis() {
+  log "Validando APIs de pessoas, usuarios e clientes."
+
+  local pessoa_cpf usuario_cpf cliente_cpf pessoa_id usuario_id cliente_id
+  pessoa_cpf="$(cpf_from_seed "$((RUN_SEED + 11))")"
+  usuario_cpf="$(cpf_from_seed "$((RUN_SEED + 22))")"
+  cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 33))")"
+
+  api POST "/pessoas" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  api GET "/pessoas" 200 "${ADMIN_TOKEN}"
+  pessoa_id="$(json_id_by_field "documento" "${pessoa_cpf}")"
+  api GET "/pessoas/${pessoa_id}" 200 "${ADMIN_TOKEN}"
+  api PUT "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa Atualizada ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+
+  api POST "/usuarios/completos" 204 "${ADMIN_TOKEN}" "$(
+    jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario ${RUN_LABEL}" --arg password "secret" \
+      '{documento:$documento,nome:$nome,password:$password,status:"ATIVO",papeis:["recepcionista"]}'
+  )"
+  api GET "/usuarios" 200 "${ADMIN_TOKEN}"
+  usuario_id="$(json_id_by_field "documento" "${usuario_cpf}")"
+  api GET "/usuarios/${usuario_id}" 200 "${ADMIN_TOKEN}"
+  api GET "/usuarios/completos" 200 "${ADMIN_TOKEN}"
+  api GET "/usuarios/completos/${usuario_id}" 200 "${ADMIN_TOKEN}"
+  api PUT "/usuarios/completos/${usuario_id}" 204 "${ADMIN_TOKEN}" "$(
+    jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario Atualizado ${RUN_LABEL}" \
+      '{documento:$documento,nome:$nome,password:null,status:"INATIVO",papeis:["recepcionista"]}'
+  )"
+  api DELETE "/usuarios/${usuario_id}" 204 "${ADMIN_TOKEN}"
+  api GET "/usuarios/${usuario_id}" 404 "${ADMIN_TOKEN}"
+
+  api POST "/clientes/completos" 204 "${RECEPCIONISTA_TOKEN}" "$(
+    jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente ${RUN_LABEL}" --arg email "cliente-${RUN_SEED}@oficina.local" \
+      '{documento:$documento,nome:$nome,email:$email}'
+  )"
+  api GET "/clientes" 200 "${RECEPCIONISTA_TOKEN}"
+  cliente_id="$(json_id_by_field "documento" "${cliente_cpf}")"
+  api GET "/clientes/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+  api GET "/clientes/completos" 200 "${RECEPCIONISTA_TOKEN}"
+  api GET "/clientes/completos/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+  api PUT "/clientes/completos/${cliente_id}" 204 "${RECEPCIONISTA_TOKEN}" "$(
+    jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente Atualizado ${RUN_LABEL}" --arg email "cliente-atualizado-${RUN_SEED}@oficina.local" \
+      '{documento:$documento,nome:$nome,email:$email}'
+  )"
+  api DELETE "/clientes/completos/${cliente_id}" 204 "${ADMIN_TOKEN}"
+  api GET "/clientes/${cliente_id}" 404 "${RECEPCIONISTA_TOKEN}"
+
+  api DELETE "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}"
+  api GET "/pessoas/${pessoa_id}" 404 "${ADMIN_TOKEN}"
+}
+
+test_catalog_stock_vehicle_apis() {
+  log "Validando APIs de veiculos, catalogo e estoque."
+
+  local placa
+  placa="$(plate_from_seed "${RUN_SEED}")"
+
+  api POST "/veiculos" 204 "${RECEPCIONISTA_TOKEN}" "$(jq -cn --arg placa "${placa}" '{placa:$placa,marca:"Marca Lab",modelo:"Modelo Lab",ano:2026}')"
+  api GET "/veiculos/1" 200 "${RECEPCIONISTA_TOKEN}"
+  api PUT "/veiculos/1" 204 "${RECEPCIONISTA_TOKEN}" '{"placa":"ABC1234","marca":"11111111111","modelo":"11111111111","ano":11111111}'
+  api DELETE "/veiculos/999999" 204 "${ADMIN_TOKEN}"
+
+  api POST "/pecas" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg nome "Peca ${RUN_LABEL}" '{nome:$nome}')"
+  api GET "/pecas/1" 200 "${ADMIN_TOKEN}"
+  api PUT "/pecas/3" 204 "${ADMIN_TOKEN}" '{"nome":"Tapete"}'
+  api DELETE "/pecas/999999" 404 "${ADMIN_TOKEN}"
+
+  api POST "/servicos" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg nome "Servico ${RUN_LABEL}" '{nome:$nome}')"
+  api GET "/servicos/1" 200 "${ADMIN_TOKEN}"
+  api PUT "/servicos/1" 204 "${ADMIN_TOKEN}" '{"nome":"Troca de oleo"}'
+  api DELETE "/servicos/999999" 404 "${ADMIN_TOKEN}"
+
+  api POST "/estoque/acrescentar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":5.000,"observacao":"Validacao de metricas - entrada"}'
+  api POST "/estoque/baixar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":1.000,"observacao":"Validacao de metricas - saida"}'
+  api POST "/estoque/baixar" 409 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":999999.000,"observacao":"Validacao de metricas - conflito esperado"}'
+}
+
+test_order_lifecycle() {
+  log "Validando ciclo de vida completo da ordem de servico."
+
+  local os_id refused_os_id complete_os_id
+  local complete_cliente_cpf complete_placa
+
+  api POST "/estoque/acrescentar" 204 "${ADMIN_TOKEN}" '{"id":1,"ordemDeServicoId":null,"quantidade":5.000,"observacao":"Saldo para ciclo de vida de OS"}'
+
+  api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
+  os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  log "OS principal criada: ${os_id}"
+
+  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "RECEBIDA"'
+
+  api POST "/ordem-de-servico/${os_id}/iniciar-diagnostico" 204 "${MECANICO_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "EM_DIAGNOSTICO"'
+
+  api POST "/ordem-de-servico/${os_id}/incluir-servico" 204 "${MECANICO_TOKEN}" '{"servicoId":1,"quantidade":1.000,"valorUnitario":120.00}'
+  api POST "/ordem-de-servico/${os_id}/incluir-peca" 204 "${MECANICO_TOKEN}" '{"pecaId":1,"quantidade":1.000,"valorUnitario":50.00}'
+  api POST "/ordem-de-servico/${os_id}/finalizar-diagnostico" 204 "${MECANICO_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "AGUARDANDO_APROVACAO"'
+
+  if [[ "${SKIP_MAGIC_LINK}" != "true" ]]; then
+    api POST "/ordem-de-servico/${os_id}/enviar-link-magico" 200 "${RECEPCIONISTA_TOKEN}" "$(jq -cn --arg email "cliente-${RUN_SEED}@oficina.local" '{email:$email}')"
+    local acompanhar aprovar recusar
+    acompanhar="$(path_from_url "$(jq -er '.acompanhar' <<<"${LAST_BODY}")")"
+    aprovar="$(path_from_url "$(jq -er '.aprovar' <<<"${LAST_BODY}")")"
+    recusar="$(path_from_url "$(jq -er '.recusar' <<<"${LAST_BODY}")")"
+    api GET "${acompanhar}" 200
+    api GET "${aprovar}" 200
+    api GET "${recusar}" 200
+  else
+    log "Magic links ignorados por SKIP_MAGIC_LINK=true."
+  fi
+
+  api POST "/ordem-de-servico/${os_id}/aprovar" 204 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "EM_EXECUCAO"'
+
+  api POST "/ordem-de-servico/${os_id}/finalizar" 204 "${MECANICO_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "FINALIZADA"'
+
+  api POST "/ordem-de-servico/${os_id}/entregar" 204 "${RECEPCIONISTA_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "ENTREGUE"'
+
+  api GET "/ordem-de-servico/${os_id}" 200 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/historico-estado" 200 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico?page=0&size=20&sort=criadoEm,desc" 200 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico?estado=ENTREGUE&page=0&size=20" 200 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico/abertas-priorizadas" 200 "${ADMIN_TOKEN}"
+
+  api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
+  refused_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  api POST "/ordem-de-servico/${refused_os_id}/iniciar-diagnostico" 204 "${MECANICO_TOKEN}"
+  api POST "/ordem-de-servico/${refused_os_id}/finalizar-diagnostico" 204 "${MECANICO_TOKEN}"
+  api POST "/ordem-de-servico/${refused_os_id}/recusar" 204 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico/${refused_os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "EM_DIAGNOSTICO"'
+
+  complete_cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 44))")"
+  complete_placa="$(plate_from_seed "$((RUN_SEED + 44))")"
+  api POST "/ordem-de-servico/completa" 200 "${RECEPCIONISTA_TOKEN}" "$(
+    jq -cn \
+      --arg documento "${complete_cliente_cpf}" \
+      --arg nome "Cliente OS Completa ${RUN_LABEL}" \
+      --arg email "os-completa-${RUN_SEED}@oficina.local" \
+      --arg placa "${complete_placa}" \
+      '{documentoDoCliente:$documento,nomeDoCliente:$nome,emailDoCliente:$email,placaDoVeiculo:$placa,marcaDoVeiculo:"Marca Lab",modeloDoVeiculo:"Modelo Lab",ano:2026,servicos:[{servicoId:1,quantidade:1.000,valorUnitario:100.00}],pecas:[]}'
+  )"
+  complete_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  api GET "/ordem-de-servico/${complete_os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
+  assert_json_field '.estado == "EM_DIAGNOSTICO"'
+}
+
+validate_metrics() {
+  log "Validando metricas Prometheus geradas pelo fluxo."
+  api GET "/q/metrics" 200
+  assert_metric "os_created_total"
+  assert_metric "os_status_transition_total"
+  assert_metric "os_status_duration_ms"
+  log "Metricas de OS encontradas em /q/metrics."
+}
+
+main() {
+  if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+  fi
+
+  require_cmd curl
+  require_cmd jq
+  mkdir -p "${TMP_DIR}"
+  trap cleanup EXIT
+
+  log "Configuracao: APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, RUN_LABEL=${RUN_LABEL}."
+  start_port_forward
+  authenticate
+  test_public_and_security
+  test_common_apis
+  test_catalog_stock_vehicle_apis
+  test_order_lifecycle
+  validate_metrics
+
+  log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+}
+
+main "$@"
