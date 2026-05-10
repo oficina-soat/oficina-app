@@ -36,6 +36,10 @@ FORCAR_FALHAS_OS="${FORCAR_FALHAS_OS:-true}"
 EXECUCOES="${EXECUCOES:-${RUNS:-1}}"
 RUN_FOREVER="${RUN_FOREVER:-false}"
 PAUSE_SECONDS="${PAUSE_SECONDS:-0}"
+CURL_RETRIES="${CURL_RETRIES:-3}"
+CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-2}"
+CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-10}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-60}"
 
 RUN_SEED_BASE="${RUN_SEED:-}"
 RUN_LABEL_BASE="${RUN_LABEL:-metrics}"
@@ -81,6 +85,8 @@ Variaveis principais:
   RUNS                      Alias de EXECUCOES
   RUN_FOREVER               true|false. Quando true, roda ate Ctrl+C. Default: false
   PAUSE_SECONDS             Pausa entre execucoes. Default: 0
+  CURL_RETRIES              Novas tentativas para falhas de rede. Default: 3
+  CURL_RETRY_DELAY          Pausa entre novas tentativas HTTP. Default: 2
   STOP_PORT_FORWARD_ON_EXIT true|false. Default: false
 
 Exemplos:
@@ -122,6 +128,14 @@ validate_loop_config() {
 
   if [[ -n "${RUN_SEED_BASE}" ]] && ! [[ "${RUN_SEED_BASE}" =~ ^[0-9]+$ ]]; then
     fail "RUN_SEED deve conter apenas numeros."
+  fi
+
+  if ! [[ "${CURL_RETRIES}" =~ ^[0-9]+$ ]]; then
+    fail "CURL_RETRIES deve ser um inteiro maior ou igual a zero."
+  fi
+
+  if ! [[ "${CURL_RETRY_DELAY}" =~ ^[0-9]+$ ]]; then
+    fail "CURL_RETRY_DELAY deve ser um inteiro maior ou igual a zero."
   fi
 }
 
@@ -391,7 +405,9 @@ curl_request() {
   local expected_status
   local status_ok="false"
   local request_id="${RUN_LABEL}-$(date +%s%N)"
-  local args=(-sS -o "${response_file}" -w "%{http_code}" -X "${method}" -H "X-Request-Id: ${request_id}")
+  local attempt=1
+  local max_attempts=$((CURL_RETRIES + 1))
+  local args=(-sS -o "${response_file}" -w "%{http_code}" --connect-timeout "${CURL_CONNECT_TIMEOUT}" --max-time "${CURL_MAX_TIME}" -X "${method}" -H "X-Request-Id: ${request_id}")
 
   if [[ -n "${token}" ]]; then
     args+=(-H "Authorization: Bearer ${token}")
@@ -401,10 +417,20 @@ curl_request() {
     args+=(-H "Content-Type: ${content_type}" --data "${body}")
   fi
 
-  status="$(curl "${args[@]}" "${url}")" || {
-    cat "${response_file}" >&2 2>/dev/null || true
-    fail "Falha de rede em ${method} ${url}"
-  }
+  while true; do
+    if status="$(curl "${args[@]}" "${url}")"; then
+      break
+    fi
+
+    if (( attempt >= max_attempts )); then
+      cat "${response_file}" >&2 2>/dev/null || true
+      fail "Falha de rede em ${method} ${url}"
+    fi
+
+    log "Falha de rede em ${method} ${url}; nova tentativa ${attempt}/${CURL_RETRIES} em ${CURL_RETRY_DELAY}s."
+    attempt=$((attempt + 1))
+    sleep "${CURL_RETRY_DELAY}"
+  done
 
   LAST_BODY="$(cat "${response_file}")"
   rm -f "${response_file}"
@@ -454,6 +480,7 @@ dev_jwt_token() {
 
 discover_k8s_auth_config() {
   command -v kubectl >/dev/null 2>&1 || return 0
+  ensure_kubeconfig
 
   local issuer
   issuer="$(kubectl get configmap "${AUTH_CONFIGMAP}" --namespace "${APP_NAMESPACE}" \
@@ -871,7 +898,11 @@ main() {
     fi
   done
 
-  log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+  if [[ "${ENABLE_PORT_FORWARD}" == "true" ]]; then
+    log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+  else
+    log "Validacao concluida em ${APP_BASE_URL}."
+  fi
 }
 
 main "$@"
