@@ -30,6 +30,15 @@ public class ClienteCommandResource {
     }
 
     @WithTransaction
+    @POST
+    @Path("completos")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @RolesAllowed({TipoDePapelValues.RECEPCIONISTA, TipoDePapelValues.ADMINISTRATIVO})
+    public Uni<Void> createFull(ClienteCommandController.ClienteCompletoRequest clienteRequest) {
+        return Uni.createFrom().completionStage(clienteCommandController.adicionarClienteCompleto(clienteRequest));
+    }
+
+    @WithTransaction
     @PUT
     @Path("{id}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -39,10 +48,27 @@ public class ClienteCommandResource {
     }
 
     @WithTransaction
+    @PUT
+    @Path("completos/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    @RolesAllowed({TipoDePapelValues.RECEPCIONISTA, TipoDePapelValues.ADMINISTRATIVO})
+    public Uni<Void> updateFull(@PathParam("id") Long id, ClienteCommandController.ClienteCompletoRequest clienteRequest) {
+        return Uni.createFrom().completionStage(clienteCommandController.atualizarClienteCompleto(id, clienteRequest));
+    }
+
+    @WithTransaction
     @DELETE
     @Path("{id}")
     @RolesAllowed(TipoDePapelValues.ADMINISTRATIVO)
     public Uni<Void> delete(@PathParam("id") Long id) {
         return Uni.createFrom().completionStage(clienteCommandController.excluirCliente(id));
+    }
+
+    @WithTransaction
+    @DELETE
+    @Path("completos/{id}")
+    @RolesAllowed(TipoDePapelValues.ADMINISTRATIVO)
+    public Uni<Void> deleteFull(@PathParam("id") Long id) {
+        return delete(id);
     }
 }

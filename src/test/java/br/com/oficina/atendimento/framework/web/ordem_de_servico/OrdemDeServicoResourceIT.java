@@ -257,6 +257,7 @@ class OrdemDeServicoResourceIT {
                         "/ordem-de-servico/completa",
                         new OrdemDeServicoCommandController.AbrirOrdemDeServicoCompletaRequest(
                                 "542.818.670-40",
+                                "Cliente Legado",
                                 "cliente-legado@oficina.com",
                                 "zzz1234",
                                 "marca",
@@ -305,6 +306,7 @@ class OrdemDeServicoResourceIT {
                         "/ordem-de-servico/completa",
                         new OrdemDeServicoCommandController.AbrirOrdemDeServicoCompletaRequest(
                                 "84191404067",
+                                "Administrador Laboratorio",
                                 "cliente3@oficina.com",
                                 "yyy1234",
                                 "marca",
@@ -354,6 +356,7 @@ class OrdemDeServicoResourceIT {
                         "/ordem-de-servico/completa",
                         new OrdemDeServicoCommandController.AbrirOrdemDeServicoCompletaRequest(
                                 "115.035.510-75",
+                                "Joao de Barro",
                                 "joao@de.barro",
                                 "abc1234",
                                 "Carro",
@@ -397,6 +400,7 @@ class OrdemDeServicoResourceIT {
                 .contentType(ContentType.JSON)
                 .body(new OrdemDeServicoCommandController.AbrirOrdemDeServicoCompletaRequest(
                         "839.309.960-90",
+                        "Cliente Ordem",
                         "cliente@oficina.com",
                         "abc1234",
                         "marca",
@@ -568,9 +572,13 @@ class OrdemDeServicoResourceIT {
                                     }
                                     return request.send();
                                 })
-                                .invoke(response -> Assertions.assertEquals(expectedStatusCode, response.statusCode()))
-                                .chain(HttpClientResponse::body)
-                                .map(Buffer::toString)
+                                .chain(response -> response.body()
+                                        .map(Buffer::toString)
+                                        .invoke(responseBody -> {
+                                            if (response.statusCode() != expectedStatusCode) {
+                                                Assertions.fail("HTTP " + response.statusCode() + ": " + responseBody);
+                                            }
+                                        }))
                                 .call(_ -> client.close()));
     }
 

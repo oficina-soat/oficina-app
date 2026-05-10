@@ -234,6 +234,10 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
     }
 
     private static void atualizarServicos(OrdemDeServicoEntity ordemDeServicoEntity, OrdemDeServico ordemDeServico) {
+        if (servicosIguais(ordemDeServicoEntity, ordemDeServico)) {
+            return;
+        }
+
         ordemDeServicoEntity.servicos.clear();
         ordemDeServicoEntity.servicos.addAll(ordemDeServico.servicos().stream()
                 .map(servico -> {
@@ -249,6 +253,10 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
     }
 
     private static void atualizarPecas(OrdemDeServicoEntity ordemDeServicoEntity, OrdemDeServico ordemDeServico) {
+        if (pecasIguais(ordemDeServicoEntity, ordemDeServico)) {
+            return;
+        }
+
         ordemDeServicoEntity.pecas.clear();
         ordemDeServicoEntity.pecas.addAll(ordemDeServico.pecas().stream()
                 .map(peca -> {
@@ -261,5 +269,31 @@ public class OrdemDeServicoDataSourceAdapter implements OrdemDeServicoGateway {
                     return entity;
                 })
                 .toList());
+    }
+
+    private static boolean servicosIguais(OrdemDeServicoEntity ordemDeServicoEntity, OrdemDeServico ordemDeServico) {
+        if (ordemDeServicoEntity.servicos.size() != ordemDeServico.servicos().size()) {
+            return false;
+        }
+
+        return ordemDeServico.servicos().stream()
+                .allMatch(servico -> ordemDeServicoEntity.servicos.stream()
+                        .anyMatch(entity -> entity.servicoId == servico.id()
+                                && entity.quantidade.compareTo(servico.quantidade()) == 0
+                                && entity.valorUnitario.compareTo(servico.valorUnitario()) == 0
+                                && entity.valorTotal.compareTo(servico.valorTotal()) == 0));
+    }
+
+    private static boolean pecasIguais(OrdemDeServicoEntity ordemDeServicoEntity, OrdemDeServico ordemDeServico) {
+        if (ordemDeServicoEntity.pecas.size() != ordemDeServico.pecas().size()) {
+            return false;
+        }
+
+        return ordemDeServico.pecas().stream()
+                .allMatch(peca -> ordemDeServicoEntity.pecas.stream()
+                        .anyMatch(entity -> entity.pecaId == peca.id()
+                                && entity.quantidade.compareTo(peca.quantidade()) == 0
+                                && entity.valorUnitario.compareTo(peca.valorUnitario()) == 0
+                                && entity.valorTotal.compareTo(peca.valorTotal()) == 0));
     }
 }

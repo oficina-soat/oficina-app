@@ -38,10 +38,26 @@ public class UsuarioQueryResource {
 
     @WithSession
     @GET
+    @Path("completos")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Uni<List<UsuarioViewModel>> listFull() {
+        return list();
+    }
+
+    @WithSession
+    @GET
     @Path("{id}")
     @Produces(MediaType.APPLICATION_JSON)
     public Uni<UsuarioViewModel> read(@PathParam("id") Long id) {
         return Uni.createFrom().completionStage(usuarioQueryController.buscar(id))
                 .replaceWith(usuarioPresenterAdapter::viewModel);
+    }
+
+    @WithSession
+    @GET
+    @Path("completos/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    public Uni<UsuarioViewModel> readFull(@PathParam("id") Long id) {
+        return read(id);
     }
 }

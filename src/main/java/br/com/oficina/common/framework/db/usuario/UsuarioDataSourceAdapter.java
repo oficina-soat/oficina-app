@@ -1,12 +1,12 @@
 package br.com.oficina.common.framework.db.usuario;
 
-import br.com.oficina.atendimento.framework.db.cliente.ClienteEntity;
-import br.com.oficina.common.core.entities.TipoPessoa;
+import br.com.oficina.common.core.entities.Pessoa;
 import br.com.oficina.common.core.entities.Usuario;
 import br.com.oficina.common.core.entities.UsuarioStatus;
 import br.com.oficina.common.core.exceptions.UsuarioNaoEncontradoException;
 import br.com.oficina.common.core.interfaces.gateway.UsuarioGateway;
 import br.com.oficina.common.framework.db.pessoa.PessoaEntity;
+import br.com.oficina.common.framework.db.pessoa.PessoaDataSourceAdapter;
 import br.com.oficina.common.web.TipoDePapel;
 import io.quarkus.elytron.security.common.BcryptUtil;
 import io.smallrye.mutiny.Uni;
@@ -24,17 +24,37 @@ public class UsuarioDataSourceAdapter implements UsuarioGateway {
     @Override
     public CompletableFuture<Long> adicionar(Usuario usuario, String password) {
         return buscarPapeis(usuario.papeis())
-                .flatMap(papeis -> resolverPessoa(null, usuario)
+                .flatMap(papeis -> resolverPessoaPorId(usuario.pessoaId(), null)
                         .flatMap(pessoa -> {
                             var usuarioEntity = new UsuarioEntity();
                             usuarioEntity.pessoa = pessoa;
                             usuarioEntity.password = BcryptUtil.bcryptHash(password, BCRYPT_ITERATION_COUNT);
                             usuarioEntity.status = usuario.status();
                             usuarioEntity.papelEntities.addAll(papeis);
-                            return usuarioEntity.persistir()
-                                    .call(entity -> sincronizarClienteCompartilhado(pessoa))
-                                    .map(entity -> entity.id);
+                            return usuarioEntity.persistir().map(entity -> entity.id);
                         }))
+                .subscribeAsCompletionStage();
+    }
+
+    @Override
+    public CompletableFuture<Long> adicionarCompleto(Pessoa pessoa, Usuario usuario, String password) {
+        validarPessoaFisica(pessoa);
+        return buscarPapeis(usuario.papeis())
+                .flatMap(papeis -> resolverPessoaPorDocumento(pessoa)
+                        .flatMap(pessoaEntity -> UsuarioEntity.buscarPorPessoaId(pessoaEntity.id)
+                                .flatMap(usuarioExistente -> {
+                                    if (usuarioExistente != null) {
+                                        return Uni.createFrom().failure(new IllegalArgumentException("Já existe usuário vinculado à pessoa informada"));
+                                    }
+
+                                    var usuarioEntity = new UsuarioEntity();
+                                    usuarioEntity.pessoa = pessoaEntity;
+                                    usuarioEntity.password = BcryptUtil.bcryptHash(password, BCRYPT_ITERATION_COUNT);
+                                    usuarioEntity.status = usuario.status();
+                                    usuarioEntity.papelEntities.addAll(papeis);
+                                    return usuarioEntity.persistir();
+                                })))
+                .map(entity -> entity.id)
                 .subscribeAsCompletionStage();
     }
 
@@ -63,7 +83,7 @@ public class UsuarioDataSourceAdapter implements UsuarioGateway {
                     var usuarioAtual = toDomain(usuarioEntity);
                     atualizacao.accept(usuarioAtual);
                     return buscarPapeis(usuarioAtual.papeis())
-                            .flatMap(papeis -> resolverPessoa(usuarioEntity, usuarioAtual)
+                            .flatMap(papeis -> resolverPessoaPorId(usuarioAtual.pessoaId(), usuarioEntity.id)
                                     .flatMap(pessoa -> {
                                         usuarioEntity.pessoa = pessoa;
                                         usuarioEntity.status = usuarioAtual.status();
@@ -72,7 +92,31 @@ public class UsuarioDataSourceAdapter implements UsuarioGateway {
                                         if (novaSenha != null) {
                                             usuarioEntity.password = BcryptUtil.bcryptHash(novaSenha, BCRYPT_ITERATION_COUNT);
                                         }
-                                        return sincronizarClienteCompartilhado(pessoa).replaceWithVoid();
+                                        return Uni.createFrom().voidItem();
+                                    }));
+                })
+                .replaceWithVoid()
+                .subscribeAsCompletionStage();
+    }
+
+    @Override
+    public CompletableFuture<Void> atualizarCompleto(long id, Pessoa pessoa, Consumer<Usuario> atualizacao, String novaSenha) {
+        validarPessoaFisica(pessoa);
+        return UsuarioEntity.buscaParaAtualizar(id)
+                .onItem().ifNull().failWith(() -> new UsuarioNaoEncontradoException(id))
+                .flatMap(usuarioEntity -> {
+                    var usuarioAtual = toDomain(usuarioEntity);
+                    atualizacao.accept(usuarioAtual);
+                    return buscarPapeis(usuarioAtual.papeis())
+                            .flatMap(papeis -> resolverPessoaParaAtualizacao(usuarioEntity, pessoa)
+                                    .invoke(pessoaEntity -> {
+                                        usuarioEntity.pessoa = pessoaEntity;
+                                        usuarioEntity.status = usuarioAtual.status();
+                                        usuarioEntity.papelEntities.clear();
+                                        usuarioEntity.papelEntities.addAll(papeis);
+                                        if (novaSenha != null) {
+                                            usuarioEntity.password = BcryptUtil.bcryptHash(novaSenha, BCRYPT_ITERATION_COUNT);
+                                        }
                                     }));
                 })
                 .replaceWithVoid()
@@ -103,69 +147,79 @@ public class UsuarioDataSourceAdapter implements UsuarioGateway {
                 });
     }
 
-    private static Uni<PessoaEntity> resolverPessoa(UsuarioEntity usuarioEntity, Usuario usuario) {
-        var pessoaAtual = usuarioEntity == null ? null : usuarioEntity.pessoa;
-        return PessoaEntity.buscarPorDocumento(usuario.documento())
+    private static Usuario toDomain(UsuarioEntity usuarioEntity) {
+        return new Usuario(
+                usuarioEntity.id,
+                usuarioEntity.pessoa.id,
+                usuarioEntity.pessoa.nome,
+                usuarioEntity.pessoa.documento,
+                usuarioEntity.status == null ? UsuarioStatus.ATIVO : usuarioEntity.status,
+                usuarioEntity.papelEntities.stream()
+                        .map(papelEntity -> TipoDePapel.fromValor(papelEntity.nome))
+                        .collect(java.util.stream.Collectors.toSet()));
+    }
+
+    private static Uni<PessoaEntity> resolverPessoaPorId(long pessoaId, Long usuarioPermitidoId) {
+        if (pessoaId <= 0) {
+            return Uni.createFrom().failure(new IllegalArgumentException("Pessoa é obrigatória para criar usuário"));
+        }
+
+        return PessoaEntity.buscarPorId(pessoaId)
+                .onItem().ifNull().failWith(() -> new IllegalArgumentException("Pessoa informada não existe"))
+                .flatMap(pessoa -> {
+                    validarPessoaFisica(PessoaDataSourceAdapter.toDomain(pessoa));
+                    return UsuarioEntity.buscarPorPessoaId(pessoa.id)
+                            .flatMap(usuarioExistente -> {
+                                if (usuarioExistente != null
+                                        && (usuarioPermitidoId == null || !usuarioExistente.id.equals(usuarioPermitidoId))) {
+                                    return Uni.createFrom().failure(new IllegalArgumentException("Já existe usuário vinculado à pessoa informada"));
+                                }
+
+                                return Uni.createFrom().item(pessoa);
+                            });
+                });
+    }
+
+    private static Uni<PessoaEntity> resolverPessoaPorDocumento(Pessoa pessoa) {
+        return PessoaEntity.buscarPorDocumento(pessoa.documento().valor())
                 .flatMap(pessoaEncontrada -> {
                     if (pessoaEncontrada == null) {
-                        return atualizarOuCriarPessoa(pessoaAtual, usuario);
+                        return PessoaDataSourceAdapter.toEntity(pessoa).persistir();
                     }
 
-                    if (pessoaAtual != null && pessoaEncontrada.id.equals(pessoaAtual.id)) {
-                        preencherPessoa(pessoaAtual, usuario);
-                        return Uni.createFrom().item(pessoaAtual);
+                    PessoaDataSourceAdapter.preencherPessoa(pessoaEncontrada, pessoa);
+                    return Uni.createFrom().item(pessoaEncontrada);
+                });
+    }
+
+    private static Uni<PessoaEntity> resolverPessoaParaAtualizacao(UsuarioEntity usuarioEntity, Pessoa pessoa) {
+        return PessoaEntity.buscarPorDocumento(pessoa.documento().valor())
+                .flatMap(pessoaEncontrada -> {
+                    if (pessoaEncontrada == null) {
+                        PessoaDataSourceAdapter.preencherPessoa(usuarioEntity.pessoa, pessoa);
+                        return Uni.createFrom().item(usuarioEntity.pessoa);
+                    }
+
+                    if (pessoaEncontrada.id.equals(usuarioEntity.pessoa.id)) {
+                        PessoaDataSourceAdapter.preencherPessoa(pessoaEncontrada, pessoa);
+                        return Uni.createFrom().item(pessoaEncontrada);
                     }
 
                     return UsuarioEntity.buscarPorPessoaId(pessoaEncontrada.id)
                             .flatMap(outroUsuario -> {
-                                if (outroUsuario != null && (usuarioEntity == null || !outroUsuario.id.equals(usuarioEntity.id))) {
-                                    return Uni.createFrom().failure(new IllegalArgumentException("Já existe usuário vinculado ao documento informado"));
+                                if (outroUsuario != null && !outroUsuario.id.equals(usuarioEntity.id)) {
+                                    return Uni.createFrom().failure(new IllegalArgumentException("Já existe usuário vinculado à pessoa informada"));
                                 }
 
-                                preencherPessoa(pessoaEncontrada, usuario);
+                                PessoaDataSourceAdapter.preencherPessoa(pessoaEncontrada, pessoa);
                                 return Uni.createFrom().item(pessoaEncontrada);
                             });
                 });
     }
 
-    private static Uni<PessoaEntity> atualizarOuCriarPessoa(PessoaEntity pessoaAtual, Usuario usuario) {
-        if (pessoaAtual != null) {
-            preencherPessoa(pessoaAtual, usuario);
-            return Uni.createFrom().item(pessoaAtual);
+    private static void validarPessoaFisica(Pessoa pessoa) {
+        if (!br.com.oficina.common.core.entities.TipoPessoa.FISICA.equals(pessoa.tipoPessoa())) {
+            throw new IllegalArgumentException("Usuário deve estar vinculado a uma pessoa física");
         }
-
-        var novaPessoa = new PessoaEntity();
-        preencherPessoa(novaPessoa, usuario);
-        return novaPessoa.persistir();
-    }
-
-    private static void preencherPessoa(PessoaEntity pessoa, Usuario usuario) {
-        pessoa.documento = usuario.documento();
-        pessoa.tipoPessoa = TipoPessoa.FISICA;
-        pessoa.nome = usuario.nome();
-        pessoa.email = usuario.email();
-    }
-
-    private static Uni<Void> sincronizarClienteCompartilhado(PessoaEntity pessoa) {
-        return ClienteEntity.buscarPorPessoaId(pessoa.id)
-                .invoke(clienteEntity -> {
-                    if (clienteEntity != null) {
-                        clienteEntity.documento = pessoa.documento;
-                        clienteEntity.email = pessoa.email;
-                    }
-                })
-                .replaceWithVoid();
-    }
-
-    private static Usuario toDomain(UsuarioEntity usuarioEntity) {
-        return new Usuario(
-                usuarioEntity.id,
-                usuarioEntity.pessoa.nome,
-                usuarioEntity.pessoa.documento,
-                usuarioEntity.pessoa.email,
-                usuarioEntity.status == null ? UsuarioStatus.ATIVO : usuarioEntity.status,
-                usuarioEntity.papelEntities.stream()
-                        .map(papelEntity -> TipoDePapel.fromValor(papelEntity.nome))
-                        .collect(java.util.stream.Collectors.toSet()));
     }
 }

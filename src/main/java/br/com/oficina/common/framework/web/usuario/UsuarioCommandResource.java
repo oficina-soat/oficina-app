@@ -31,6 +31,14 @@ public class UsuarioCommandResource {
     }
 
     @WithTransaction
+    @POST
+    @Path("completos")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Uni<Void> createFull(UsuarioCommandController.UsuarioCompletoRequest usuarioRequest) {
+        return Uni.createFrom().completionStage(usuarioCommandController.adicionarUsuarioCompleto(usuarioRequest));
+    }
+
+    @WithTransaction
     @PUT
     @Path("{id}")
     @Consumes(MediaType.APPLICATION_JSON)
@@ -39,9 +47,24 @@ public class UsuarioCommandResource {
     }
 
     @WithTransaction
+    @PUT
+    @Path("completos/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Uni<Void> updateFull(@PathParam("id") Long id, UsuarioCommandController.UsuarioCompletoRequest usuarioRequest) {
+        return Uni.createFrom().completionStage(usuarioCommandController.atualizarUsuarioCompleto(id, usuarioRequest));
+    }
+
+    @WithTransaction
     @DELETE
     @Path("{id}")
     public Uni<Void> delete(@PathParam("id") Long id) {
         return Uni.createFrom().completionStage(usuarioCommandController.excluirUsuario(id));
+    }
+
+    @WithTransaction
+    @DELETE
+    @Path("completos/{id}")
+    public Uni<Void> deleteFull(@PathParam("id") Long id) {
+        return delete(id);
     }
 }

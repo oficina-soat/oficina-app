@@ -16,15 +16,13 @@ public class AdicionarUsuarioUseCase {
     }
 
     public CompletableFuture<Void> executar(Command command) {
-        var usuario = new Usuario(0, command.nome(), command.documento(), command.email(), command.status(), command.papeis());
+        var usuario = new Usuario(0, command.pessoaId(), null, null, command.status(), command.papeis());
         return usuarioGateway.adicionar(usuario, command.password())
                 .thenAccept(_ -> {
                 });
     }
 
-    public record Command(String nome,
-                          String documento,
-                          String email,
+    public record Command(long pessoaId,
                           String password,
                           UsuarioStatus status,
                           Set<TipoDePapel> papeis) {

@@ -15,26 +15,25 @@ import jakarta.validation.constraints.NotNull;
 @Entity
 @Table(name = "cliente")
 public class ClienteEntity extends PanacheEntity {
+    private static final String FETCH_QUERY =
+            "select c from ClienteEntity c "
+                    + "join fetch c.pessoa ";
 
     @OneToOne(optional = false, fetch = FetchType.LAZY)
     @JoinColumn(name = "pessoa_id", nullable = false, unique = true)
     public PessoaEntity pessoa;
 
     @NotNull
-    @Column(name = "documento", nullable = false, unique = true)
-    public String documento;
-
-    @NotNull
     @Column(name = "email", nullable = false, unique = true)
     public String email;
 
     public static Uni<ClienteEntity> buscarPorDocumento(String documento) {
-        return find("documento", documento)
+        return find(FETCH_QUERY + "where c.pessoa.documento = ?1", documento)
                 .firstResult();
     }
 
     public static Uni<ClienteEntity> buscarPorPessoaId(long pessoaId) {
-        return find("pessoa.id", pessoaId)
+        return find(FETCH_QUERY + "where c.pessoa.id = ?1", pessoaId)
                 .firstResult();
     }
 
@@ -47,15 +46,17 @@ public class ClienteEntity extends PanacheEntity {
     }
 
     public static Uni<ClienteEntity> buscaPorId(long id) {
-        return findById(id);
+        return find(FETCH_QUERY + "where c.id = ?1", id).firstResult();
     }
 
     public static Uni<java.util.List<ClienteEntity>> listarTodos() {
-        return find("order by id").list();
+        return find(FETCH_QUERY + "order by c.id").list();
     }
 
     public static Uni<ClienteEntity> buscaParaAtualizar(long id) {
-        return findById(id, LockModeType.PESSIMISTIC_WRITE);
+        return find(FETCH_QUERY + "where c.id = ?1", id)
+                .withLock(LockModeType.PESSIMISTIC_WRITE)
+                .firstResult();
     }
 
     public long id() {

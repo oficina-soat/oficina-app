@@ -7,8 +7,10 @@ import br.com.oficina.atendimento.core.entities.cliente.Email;
 import br.com.oficina.atendimento.core.entities.veiculo.Veiculo;
 import br.com.oficina.atendimento.core.interfaces.gateway.ClienteGateway;
 import br.com.oficina.atendimento.core.interfaces.gateway.VeiculoGateway;
+import br.com.oficina.atendimento.core.usecases.cliente.AdicionarClienteCompletoUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.AdicionarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.ApagarClienteUseCase;
+import br.com.oficina.atendimento.core.usecases.cliente.AtualizarClienteCompletoUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.AtualizarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.BuscarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.ListarClientesUseCase;
@@ -54,12 +56,12 @@ class ControllersTest {
     @Test
     void deveExecutarComandosEConsultasDeClienteEVeiculo() {
         var clienteStore = new HashMap<Long, Cliente>();
-        clienteStore.put(1L, new Cliente(1L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com")));
+        clienteStore.put(1L, new Cliente(1L, 8L, DocumentoFactory.from("52998224725"), "Cliente", new Email("cliente@oficina.com")));
         var clienteGateway = mock(ClienteGateway.class);
         when(clienteGateway.adicionar(any())).thenAnswer(invocation -> {
             Cliente cliente = invocation.getArgument(0);
             long id = clienteStore.size() + 1L;
-            clienteStore.put(id, new Cliente(id, cliente.documento(), cliente.email()));
+            clienteStore.put(id, new Cliente(id, cliente.pessoaId(), DocumentoFactory.from("11444777000161"), "Novo Cliente", cliente.email()));
             return CompletableFuture.completedFuture(id);
         });
         when(clienteGateway.buscarPorId(anyLong())).thenAnswer(invocation -> CompletableFuture.completedFuture(clienteStore.get(invocation.getArgument(0))));
@@ -73,16 +75,18 @@ class ControllersTest {
         var clienteCommand = new ClienteCommandController(
                 new AdicionarClienteUseCase(clienteGateway),
                 new AtualizarClienteUseCase(clienteGateway),
-                new ApagarClienteUseCase(clienteGateway));
+                new ApagarClienteUseCase(clienteGateway),
+                new AdicionarClienteCompletoUseCase(clienteGateway),
+                new AtualizarClienteCompletoUseCase(clienteGateway));
         var clienteQuery = new ClienteQueryController(
                 new BuscarClienteUseCase(clienteGateway, clientePresenter),
                 new ListarClientesUseCase(clienteGateway, clientePresenter));
 
-        clienteCommand.adicionarCliente(new ClienteCommandController.ClienteRequest("11444777000161", "novo@cliente.com")).join();
-        clienteCommand.atualizarCliente(1L, new ClienteCommandController.ClienteRequest("04252011000110", "alterado@cliente.com")).join();
+        clienteCommand.adicionarCliente(new ClienteCommandController.ClienteRequest(9L, "novo@cliente.com")).join();
+        clienteCommand.atualizarCliente(1L, new ClienteCommandController.ClienteRequest(10L, "alterado@cliente.com")).join();
         clienteQuery.buscar(1L).join();
         clienteQuery.listar().join();
-        assertEquals("04252011000110", clientePresenter.viewModel().documento());
+        assertEquals(10L, clientePresenter.viewModel().pessoaId());
         assertEquals("alterado@cliente.com", clientePresenter.viewModel().email());
         assertEquals(2, clientePresenter.viewModels().size());
 
@@ -152,6 +156,7 @@ class ControllersTest {
 
         commandController.abrirOrdemDeServicoCompleta(new OrdemDeServicoCommandController.AbrirOrdemDeServicoCompletaRequest(
                 "52998224725",
+                "Cliente Controller",
                 "cliente@oficina.com",
                 "ABC1234",
                 "marca",

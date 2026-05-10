@@ -18,9 +18,7 @@ public class AtualizarUsuarioUseCase {
         return usuarioGateway.buscaParaAtualizar(
                 command.id(),
                 usuario -> {
-                    usuario.alteraNomePara(command.nome());
-                    usuario.alteraDocumentoPara(command.documento());
-                    usuario.alteraEmailPara(command.email());
+                    usuario.alteraPessoaPara(command.pessoaId());
                     usuario.alteraStatusPara(command.status());
                     usuario.alteraPapeisPara(command.papeis());
                 },
@@ -28,9 +26,7 @@ public class AtualizarUsuarioUseCase {
     }
 
     public record Command(long id,
-                          String nome,
-                          String documento,
-                          String email,
+                          long pessoaId,
                           String password,
                           UsuarioStatus status,
                           Set<TipoDePapel> papeis) {

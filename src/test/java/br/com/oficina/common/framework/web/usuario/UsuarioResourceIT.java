@@ -20,10 +20,9 @@ class UsuarioResourceIT {
 
     @Test
     void deveCriarUsuarioComSucesso() {
-        var request = new UsuarioCommandController.UsuarioRequest(
+        var request = new UsuarioCommandController.UsuarioCompletoRequest(
                 "Novo Usuario",
                 "529.982.247-25",
-                "novo.usuario@oficina.com",
                 "secret",
                 "ATIVO",
                 List.of("administrativo", "recepcionista"));
@@ -31,14 +30,13 @@ class UsuarioResourceIT {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
                 .contentType(ContentType.JSON)
                 .body(request)
-        .when().post("/usuarios")
+        .when().post("/usuarios/completos")
         .then().statusCode(204);
 
         given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
         .when().get("/usuarios")
         .then().statusCode(200)
                 .body("find { it.documento == '52998224725' }.nome", equalTo("Novo Usuario"))
-                .body("find { it.documento == '52998224725' }.email", equalTo("novo.usuario@oficina.com"))
                 .body("find { it.documento == '52998224725' }.status", equalTo("ATIVO"))
                 .body("find { it.documento == '52998224725' }.papeis", hasItems("administrativo", "recepcionista"));
     }
@@ -55,10 +53,9 @@ class UsuarioResourceIT {
 
     @Test
     void deveAtualizarUsuarioComSucesso() {
-        var requestCriacao = new UsuarioCommandController.UsuarioRequest(
+        var requestCriacao = new UsuarioCommandController.UsuarioCompletoRequest(
                 "Usuario Atualizar",
                 "390.533.447-05",
-                "usuario.atualizar@oficina.com",
                 "secret",
                 "ATIVO",
                 List.of("mecanico"));
@@ -66,7 +63,7 @@ class UsuarioResourceIT {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
                 .contentType(ContentType.JSON)
                 .body(requestCriacao)
-        .when().post("/usuarios")
+        .when().post("/usuarios/completos")
         .then().statusCode(204);
 
         Number usuarioId = given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
@@ -76,10 +73,9 @@ class UsuarioResourceIT {
                 .path("find { it.documento == '39053344705' }.id");
         assertNotNull(usuarioId);
 
-        var requestAtualizacao = new UsuarioCommandController.UsuarioRequest(
+        var requestAtualizacao = new UsuarioCommandController.UsuarioCompletoRequest(
                 "Usuario Atualizado",
                 "390.533.447-05",
-                "usuario.atualizado@oficina.com",
                 "nova-secret",
                 "INATIVO",
                 List.of("recepcionista"));
@@ -87,24 +83,22 @@ class UsuarioResourceIT {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
                 .contentType(ContentType.JSON)
                 .body(requestAtualizacao)
-        .when().put("/usuarios/%d".formatted(usuarioId.longValue()))
+        .when().put("/usuarios/completos/%d".formatted(usuarioId.longValue()))
         .then().statusCode(204);
 
         given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
         .when().get("/usuarios/%d".formatted(usuarioId.longValue()))
         .then().statusCode(200)
                 .body("nome", equalTo("Usuario Atualizado"))
-                .body("email", equalTo("usuario.atualizado@oficina.com"))
                 .body("status", equalTo("INATIVO"))
                 .body("papeis", hasItems("recepcionista"));
     }
 
     @Test
     void deveExcluirUsuarioComSucesso() {
-        var request = new UsuarioCommandController.UsuarioRequest(
+        var request = new UsuarioCommandController.UsuarioCompletoRequest(
                 "Usuario Excluir",
                 "111.444.777-35",
-                "usuario.excluir@oficina.com",
                 "secret",
                 "ATIVO",
                 List.of("mecanico"));
@@ -112,7 +106,7 @@ class UsuarioResourceIT {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
                 .contentType(ContentType.JSON)
                 .body(request)
-        .when().post("/usuarios")
+        .when().post("/usuarios/completos")
         .then().statusCode(204);
 
         Number usuarioId = given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))

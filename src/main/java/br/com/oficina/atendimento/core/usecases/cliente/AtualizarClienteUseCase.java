@@ -1,6 +1,5 @@
 package br.com.oficina.atendimento.core.usecases.cliente;
 
-import br.com.oficina.atendimento.core.entities.cliente.Documento;
 import br.com.oficina.atendimento.core.entities.cliente.Email;
 import br.com.oficina.atendimento.core.interfaces.gateway.ClienteGateway;
 
@@ -17,11 +16,11 @@ public class AtualizarClienteUseCase {
         return clienteGateway.buscaParaAtualizar(
                 command.id(),
                 cliente -> {
-                    cliente.alteraDocumentoPara(command.documento());
+                    cliente.alteraPessoaPara(command.pessoaId());
                     cliente.alteraEmailPara(command.email());
                 });
     }
 
-    public record Command(long id, Documento documento, Email email) {
+    public record Command(long id, long pessoaId, Email email) {
     }
 }

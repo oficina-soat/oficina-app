@@ -36,11 +36,29 @@ public class ClienteQueryResource {
 
     @WithSession
     @GET
+    @Path("completos")
+    @Produces(MediaType.APPLICATION_JSON)
+    @RolesAllowed({TipoDePapelValues.RECEPCIONISTA, TipoDePapelValues.ADMINISTRATIVO})
+    public Uni<List<ClienteViewModel>> listFull() {
+        return list();
+    }
+
+    @WithSession
+    @GET
     @Path("{id}")
     @Produces(MediaType.APPLICATION_JSON)
     @RolesAllowed(TipoDePapelValues.RECEPCIONISTA)
     public Uni<ClienteViewModel> read(@PathParam("id") Long id) {
         return Uni.createFrom().completionStage(clienteQueryController.buscar(id))
                 .replaceWith(clientePresenter::viewModel);
+    }
+
+    @WithSession
+    @GET
+    @Path("completos/{id}")
+    @Produces(MediaType.APPLICATION_JSON)
+    @RolesAllowed(TipoDePapelValues.RECEPCIONISTA)
+    public Uni<ClienteViewModel> readFull(@PathParam("id") Long id) {
+        return read(id);
     }
 }

@@ -26,7 +26,8 @@ class ClienteResourceIT {
         .when().get("/clientes")
         .then().statusCode(200)
                 .body("size()", greaterThanOrEqualTo(2))
-                .body("documento", hasItems("50132372037", "07250103040"))
+                .body("documento", hasItems("50132372037", "68996860077"))
+                .body("nome", hasItems("Cliente Laboratorio 1", "Cliente Laboratorio 2"))
                 .body("email", hasItems("cliente1@oficina.com", "cliente2@oficina.com"));
     }
 
@@ -35,15 +36,15 @@ class ClienteResourceIT {
     void deveIncluirClienteComCpfComSucesso(TransactionalUniAsserter asserter) {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .contentType(ContentType.JSON)
-                .body(new ClienteCommandController.ClienteRequest("390.533.447-05", "cpf@cliente.com"))
-        .when().post("/clientes")
+                .body(new ClienteCommandController.ClienteCompletoRequest("390.533.447-05", "Cliente CPF", "cpf@cliente.com"))
+        .when().post("/clientes/completos")
         .then().statusCode(204);
 
         asserter.execute(() ->
                 PessoaEntity.buscarPorDocumento("39053344705")
                         .invoke(pessoa -> {
                             assertNotNull(pessoa);
-                            assertEquals("cpf@cliente.com", pessoa.email);
+                            assertEquals("Cliente CPF", pessoa.nome);
                         }));
     }
 
@@ -51,8 +52,8 @@ class ClienteResourceIT {
     void deveIncluirClienteComPayloadInformadoComSucesso() {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .contentType(ContentType.JSON)
-                .body(new ClienteCommandController.ClienteRequest("988.193.590-30", "cliente1@gmail.com"))
-        .when().post("/clientes")
+                .body(new ClienteCommandController.ClienteCompletoRequest("988.193.590-30", "Cliente Payload", "cliente1@gmail.com"))
+        .when().post("/clientes/completos")
         .then().statusCode(204);
     }
 
@@ -60,8 +61,8 @@ class ClienteResourceIT {
     void deveRetornarBadRequestQuandoClienteJaExiste() {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .contentType(ContentType.JSON)
-                .body(new ClienteCommandController.ClienteRequest("50132372037", "outro-email@cliente.com"))
-        .when().post("/clientes")
+                .body(new ClienteCommandController.ClienteCompletoRequest("50132372037", "Cliente Duplicado", "outro-email@cliente.com"))
+        .when().post("/clientes/completos")
         .then().statusCode(400);
     }
 
@@ -69,8 +70,8 @@ class ClienteResourceIT {
     void deveIncluirClienteComCnpjComSucesso() {
         given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
                 .contentType(ContentType.JSON)
-                .body(new ClienteCommandController.ClienteRequest("43.085.583/0001-03", "cnpj@cliente.com"))
-        .when().post("/clientes")
+                .body(new ClienteCommandController.ClienteCompletoRequest("43.085.583/0001-03", "Cliente CNPJ", "cnpj@cliente.com"))
+        .when().post("/clientes/completos")
         .then().statusCode(204);
     }
 }

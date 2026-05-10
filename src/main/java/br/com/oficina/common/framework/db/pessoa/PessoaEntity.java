@@ -10,6 +10,8 @@ import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.NotNull;
 
+import java.util.List;
+
 @Entity
 @Table(name = "pessoa")
 public class PessoaEntity extends PanacheEntity {
@@ -25,11 +27,24 @@ public class PessoaEntity extends PanacheEntity {
     @Column(name = "nome")
     public String nome;
 
-    @Column(name = "email")
-    public String email;
-
     public static Uni<PessoaEntity> buscarPorDocumento(String documento) {
         return find("documento", documento).firstResult();
+    }
+
+    public static Uni<PessoaEntity> buscarPorId(long id) {
+        return findById(id);
+    }
+
+    public static Uni<List<PessoaEntity>> listarTodos() {
+        return find("order by id").list();
+    }
+
+    public static Uni<PessoaEntity> buscaParaAtualizar(long id) {
+        return findById(id, jakarta.persistence.LockModeType.PESSIMISTIC_WRITE);
+    }
+
+    public static Uni<Boolean> apagar(long id) {
+        return deleteById(id);
     }
 
     public Uni<PessoaEntity> persistir() {
