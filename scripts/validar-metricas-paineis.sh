@@ -27,9 +27,14 @@ AUTH_ADMIN_CPF="${AUTH_ADMIN_CPF:-84191404067}"
 AUTH_MECANICO_CPF="${AUTH_MECANICO_CPF:-36655462007}"
 AUTH_RECEPCIONISTA_CPF="${AUTH_RECEPCIONISTA_CPF:-17245011010}"
 SKIP_MAGIC_LINK="${SKIP_MAGIC_LINK:-false}"
+EXECUCOES="${EXECUCOES:-${RUNS:-1}}"
+RUN_FOREVER="${RUN_FOREVER:-false}"
+PAUSE_SECONDS="${PAUSE_SECONDS:-0}"
 
-RUN_SEED="${RUN_SEED:-$(date +%s)${RANDOM}}"
-RUN_LABEL="${RUN_LABEL:-metrics-${RUN_SEED}}"
+RUN_SEED_BASE="${RUN_SEED:-}"
+RUN_LABEL_BASE="${RUN_LABEL:-metrics}"
+RUN_SEED=""
+RUN_LABEL=""
 
 ADMIN_TOKEN=""
 MECANICO_TOKEN=""
@@ -61,11 +66,17 @@ Variaveis principais:
   OFICINA_AUTH_BASE_URL     Base do auth/API Gateway para POST /auth/token
   AUTH_PASSWORD             Senha dos usuarios seed do lab. Default: secret
   SKIP_MAGIC_LINK           true|false. Default: false
+  EXECUCOES                 Quantidade de execucoes. Default: 1
+  RUNS                      Alias de EXECUCOES
+  RUN_FOREVER               true|false. Quando true, roda ate Ctrl+C. Default: false
+  PAUSE_SECONDS             Pausa entre execucoes. Default: 0
   STOP_PORT_FORWARD_ON_EXIT true|false. Default: false
 
 Exemplos:
   OFICINA_AUTH_BASE_URL=https://example.execute-api.us-east-1.amazonaws.com ./scripts/validar-metricas-paineis.sh
   AUTH_MODE=dev-jwt ./scripts/validar-metricas-paineis.sh
+  EXECUCOES=5 ./scripts/validar-metricas-paineis.sh
+  RUN_FOREVER=true PAUSE_SECONDS=10 ./scripts/validar-metricas-paineis.sh
 EOF
 }
 
@@ -80,6 +91,37 @@ fail() {
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Comando obrigatorio nao encontrado: $1"
+}
+
+is_truthy() {
+  case "$1" in
+    true|TRUE|1|yes|YES|sim|SIM) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+validate_loop_config() {
+  if ! [[ "${EXECUCOES}" =~ ^[0-9]+$ ]] || [[ "${EXECUCOES}" -lt 1 ]]; then
+    fail "EXECUCOES deve ser um inteiro positivo."
+  fi
+
+  if ! [[ "${PAUSE_SECONDS}" =~ ^[0-9]+$ ]]; then
+    fail "PAUSE_SECONDS deve ser um inteiro maior ou igual a zero."
+  fi
+
+  if [[ -n "${RUN_SEED_BASE}" ]] && ! [[ "${RUN_SEED_BASE}" =~ ^[0-9]+$ ]]; then
+    fail "RUN_SEED deve conter apenas numeros."
+  fi
+}
+
+prepare_iteration_context() {
+  local iteration="$1"
+  if [[ -n "${RUN_SEED_BASE}" ]]; then
+    RUN_SEED="$((10#${RUN_SEED_BASE} + iteration - 1))"
+  else
+    RUN_SEED="$(date +%s)$((RANDOM + iteration))"
+  fi
+  RUN_LABEL="${RUN_LABEL_BASE}-${RUN_SEED}"
 }
 
 local_port_open() {
@@ -614,6 +656,20 @@ validate_metrics() {
   log "Metricas de OS encontradas em /q/metrics."
 }
 
+run_validation_once() {
+  local iteration="$1"
+  prepare_iteration_context "${iteration}"
+
+  log "Iniciando execucao ${iteration} com RUN_LABEL=${RUN_LABEL}."
+  authenticate
+  test_public_and_security
+  test_common_apis
+  test_catalog_stock_vehicle_apis
+  test_order_lifecycle
+  validate_metrics
+  log "Execucao ${iteration} concluida."
+}
+
 main() {
   if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
     usage
@@ -622,17 +678,31 @@ main() {
 
   require_cmd curl
   require_cmd jq
+  validate_loop_config
   mkdir -p "${TMP_DIR}"
   trap cleanup EXIT
 
-  log "Configuracao: APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, RUN_LABEL=${RUN_LABEL}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}."
+  log "Configuracao: APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}, EXECUCOES=${EXECUCOES}, RUN_FOREVER=${RUN_FOREVER}."
   start_port_forward
-  authenticate
-  test_public_and_security
-  test_common_apis
-  test_catalog_stock_vehicle_apis
-  test_order_lifecycle
-  validate_metrics
+
+  local iteration=1
+  if is_truthy "${RUN_FOREVER}"; then
+    log "Modo continuo ativo. Pressione Ctrl+C para interromper."
+    while true; do
+      run_validation_once "${iteration}"
+      iteration=$((iteration + 1))
+      if [[ "${PAUSE_SECONDS}" -gt 0 ]]; then
+        sleep "${PAUSE_SECONDS}"
+      fi
+    done
+  fi
+
+  for ((iteration = 1; iteration <= EXECUCOES; iteration++)); do
+    run_validation_once "${iteration}"
+    if [[ "${iteration}" -lt "${EXECUCOES}" && "${PAUSE_SECONDS}" -gt 0 ]]; then
+      sleep "${PAUSE_SECONDS}"
+    fi
+  done
 
   log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
 }
