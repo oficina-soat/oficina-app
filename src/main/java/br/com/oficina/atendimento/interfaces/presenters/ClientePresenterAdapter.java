@@ -12,12 +12,12 @@ public class ClientePresenterAdapter implements ClientePresenter {
     private List<ClienteViewModel> clientesViewModel;
 
     @Override public void present(ClienteDTO clienteDTO) {
-        this.clienteViewModel = new ClienteViewModel(clienteDTO.id(), clienteDTO.documento(), clienteDTO.email());
+        this.clienteViewModel = toViewModel(clienteDTO);
     }
 
     @Override public void present(List<ClienteDTO> clientes) {
         this.clientesViewModel = clientes.stream()
-                .map(clienteDTO -> new ClienteViewModel(clienteDTO.id(), clienteDTO.documento(), clienteDTO.email()))
+                .map(ClientePresenterAdapter::toViewModel)
                 .toList();
     }
 
@@ -29,4 +29,12 @@ public class ClientePresenterAdapter implements ClientePresenter {
         return clientesViewModel;
     }
 
+    private static ClienteViewModel toViewModel(ClienteDTO clienteDTO) {
+        return new ClienteViewModel(
+                clienteDTO.id(),
+                clienteDTO.pessoaId(),
+                clienteDTO.documento(),
+                clienteDTO.nome(),
+                clienteDTO.email());
+    }
 }

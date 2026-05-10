@@ -1,8 +1,10 @@
 package br.com.oficina.gestao_de_pecas.framework.db.catalogo;
 
 import br.com.oficina.gestao_de_pecas.core.entities.catalogo.Peca;
+import br.com.oficina.gestao_de_pecas.core.exceptions.PecaNaoEncontradaException;
 import br.com.oficina.gestao_de_pecas.core.interfaces.PecaGateway;
 import br.com.oficina.gestao_de_pecas.framework.db.catalogo.entities.PecaEntity;
+import io.smallrye.mutiny.Uni;
 import jakarta.enterprise.context.ApplicationScoped;
 
 import java.util.concurrent.CompletableFuture;
@@ -19,12 +21,14 @@ public class PecaDataSourceAdapter implements PecaGateway {
 
     @Override public CompletableFuture<Peca> buscarPorId(long id) {
         return PecaEntity.buscaPorId(id)
+                .onItem().ifNull().failWith(() -> new PecaNaoEncontradaException(id))
                 .map(PecaDataSourceAdapter::toDomain)
                 .subscribeAsCompletionStage();
     }
 
     @Override public CompletableFuture<Void> buscaParaAtualizar(long id, Consumer<Peca> atualizacao) {
         return PecaEntity.buscaPorId(id)
+                .onItem().ifNull().failWith(() -> new PecaNaoEncontradaException(id))
                 .onItem().ifNotNull().invoke(pecaEntity -> {
                     var pecaAtual = toDomain(pecaEntity);
                     atualizacao.accept(pecaAtual);
@@ -36,7 +40,9 @@ public class PecaDataSourceAdapter implements PecaGateway {
 
     @Override public CompletableFuture<Void> apagar(long id) {
         return PecaEntity.apagar(id)
-                .replaceWithVoid()
+                .flatMap(apagou -> apagou
+                        ? Uni.createFrom().voidItem()
+                        : Uni.createFrom().failure(new PecaNaoEncontradaException(id)))
                 .subscribeAsCompletionStage();
     }
 

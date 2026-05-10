@@ -10,8 +10,10 @@ import br.com.oficina.atendimento.core.interfaces.presenter.ClientePresenter;
 import br.com.oficina.atendimento.core.interfaces.presenter.VeiculoPresenter;
 import br.com.oficina.atendimento.core.interfaces.sender.EstadoDaOrdemDeServicoSender;
 import br.com.oficina.atendimento.core.interfaces.sender.OrcamentoSender;
+import br.com.oficina.atendimento.core.usecases.cliente.AdicionarClienteCompletoUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.AdicionarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.ApagarClienteUseCase;
+import br.com.oficina.atendimento.core.usecases.cliente.AtualizarClienteCompletoUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.AtualizarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.BuscarClienteUseCase;
 import br.com.oficina.atendimento.core.usecases.cliente.ListarClientesUseCase;
@@ -66,7 +68,9 @@ public class AtendimentoConfiguration {
         return new ClienteCommandController(
                 new AdicionarClienteUseCase(clienteGateway),
                 new AtualizarClienteUseCase(clienteGateway),
-                new ApagarClienteUseCase(clienteGateway));
+                new ApagarClienteUseCase(clienteGateway),
+                new AdicionarClienteCompletoUseCase(clienteGateway),
+                new AtualizarClienteCompletoUseCase(clienteGateway));
     }
 
     @Produces ClienteQueryController clienteQueryController(ClienteGateway clienteGateway,

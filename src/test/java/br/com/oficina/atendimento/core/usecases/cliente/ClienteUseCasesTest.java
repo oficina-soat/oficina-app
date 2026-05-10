@@ -1,7 +1,6 @@
 package br.com.oficina.atendimento.core.usecases.cliente;
 
 import br.com.oficina.atendimento.core.entities.cliente.Cliente;
-import br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory;
 import br.com.oficina.atendimento.core.entities.cliente.Email;
 import br.com.oficina.atendimento.core.interfaces.gateway.ClienteGateway;
 import br.com.oficina.atendimento.core.interfaces.presenter.ClientePresenter;
@@ -31,13 +30,12 @@ class ClienteUseCasesTest {
         var gateway = mock(ClienteGateway.class);
         when(gateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(1L));
         var useCase = new AdicionarClienteUseCase(gateway);
-        var documento = DocumentoFactory.from("52998224725");
 
-        useCase.executar(new AdicionarClienteUseCase.Command(documento, new Email("cliente@oficina.com"))).join();
+        useCase.executar(new AdicionarClienteUseCase.Command(8L, new Email("cliente@oficina.com"))).join();
 
         var captor = ArgumentCaptor.forClass(Cliente.class);
         verify(gateway).adicionar(captor.capture());
-        assertEquals("52998224725", captor.getValue().documento().valor());
+        assertEquals(8L, captor.getValue().pessoaId());
         assertEquals("cliente@oficina.com", captor.getValue().email().valor());
     }
 
@@ -48,14 +46,14 @@ class ClienteUseCasesTest {
         var useCase = new AdicionarClienteUseCase(gateway);
 
         assertThrows(CompletionException.class,
-                () -> useCase.executar(new AdicionarClienteUseCase.Command(DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"))).join());
+                () -> useCase.executar(new AdicionarClienteUseCase.Command(8L, new Email("cliente@oficina.com"))).join());
     }
 
     @Test
     void buscarCliente_deveApresentarDTO() {
         var gateway = mock(ClienteGateway.class);
         var presenter = mock(ClientePresenter.class);
-        var cliente = new Cliente(12L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"));
+        var cliente = new Cliente(12L, 8L, br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory.from("52998224725"), "Cliente Teste", new Email("cliente@oficina.com"));
         when(gateway.buscarPorId(12L)).thenReturn(CompletableFuture.completedFuture(cliente));
         var useCase = new BuscarClienteUseCase(gateway, presenter);
 
@@ -64,7 +62,9 @@ class ClienteUseCasesTest {
         var dtoCaptor = ArgumentCaptor.forClass(ClienteDTO.class);
         verify(presenter).present(dtoCaptor.capture());
         assertEquals(12L, dtoCaptor.getValue().id());
+        assertEquals(8L, dtoCaptor.getValue().pessoaId());
         assertEquals("52998224725", dtoCaptor.getValue().documento());
+        assertEquals("Cliente Teste", dtoCaptor.getValue().nome());
         assertEquals("cliente@oficina.com", dtoCaptor.getValue().email());
     }
 
@@ -82,8 +82,8 @@ class ClienteUseCasesTest {
         var gateway = mock(ClienteGateway.class);
         var presenter = mock(ClientePresenter.class);
         var clientes = List.of(
-                new Cliente(12L, DocumentoFactory.from("52998224725"), new Email("cliente1@oficina.com")),
-                new Cliente(13L, DocumentoFactory.from("07250103040"), new Email("cliente2@oficina.com")));
+                new Cliente(12L, 8L, br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory.from("52998224725"), "Cliente 1", new Email("cliente1@oficina.com")),
+                new Cliente(13L, 9L, br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory.from("68996860077"), "Cliente 2", new Email("cliente2@oficina.com")));
         when(gateway.listar()).thenReturn(CompletableFuture.completedFuture(clientes));
         var useCase = new ListarClientesUseCase(gateway, presenter);
 
@@ -109,7 +109,7 @@ class ClienteUseCasesTest {
     @Test
     void atualizarCliente_deveAplicarAtualizacao() {
         var gateway = mock(ClienteGateway.class);
-        var cliente = new Cliente(1L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"));
+        var cliente = new Cliente(1L, 8L, br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory.from("52998224725"), "Cliente", new Email("cliente@oficina.com"));
         doAnswer(invocation -> {
             Consumer<Cliente> atualizacao = invocation.getArgument(1);
             atualizacao.accept(cliente);
@@ -117,9 +117,9 @@ class ClienteUseCasesTest {
         }).when(gateway).buscaParaAtualizar(eq(1L), any());
         var useCase = new AtualizarClienteUseCase(gateway);
 
-        useCase.executar(new AtualizarClienteUseCase.Command(1L, DocumentoFactory.from("11444777000161"), new Email("novo@oficina.com"))).join();
+        useCase.executar(new AtualizarClienteUseCase.Command(1L, 10L, new Email("novo@oficina.com"))).join();
 
-        assertEquals("11444777000161", cliente.documento().valor());
+        assertEquals(10L, cliente.pessoaId());
         assertEquals("novo@oficina.com", cliente.email().valor());
     }
 
@@ -130,7 +130,7 @@ class ClienteUseCasesTest {
         var useCase = new AtualizarClienteUseCase(gateway);
 
         assertThrows(CompletionException.class,
-                () -> useCase.executar(new AtualizarClienteUseCase.Command(1L, DocumentoFactory.from("52998224725"), new Email("cliente@oficina.com"))).join());
+                () -> useCase.executar(new AtualizarClienteUseCase.Command(1L, 8L, new Email("cliente@oficina.com"))).join());
     }
 
     @Test

@@ -6,17 +6,17 @@ import java.util.Comparator;
 import java.util.List;
 
 public record UsuarioDTO(long id,
+                         long pessoaId,
                          String nome,
                          String documento,
-                         String email,
                          String status,
                          List<String> papeis) {
     public static UsuarioDTO fromDomain(Usuario usuario) {
         return new UsuarioDTO(
                 usuario.id(),
+                usuario.pessoaId(),
                 usuario.nome(),
                 usuario.documento(),
-                usuario.email(),
                 usuario.status().name(),
                 usuario.papeis().stream()
                         .map(tipoDePapel -> tipoDePapel.valor())

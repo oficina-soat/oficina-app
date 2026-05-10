@@ -23,8 +23,10 @@ class PresenterAdaptersTest {
     @Test
     void deveMapearClienteEVeiculoParaViewModel() {
         var clienteAdapter = new ClientePresenterAdapter();
-        clienteAdapter.present(new ClienteDTO(1L, "52998224725", "cliente@oficina.com"));
+        clienteAdapter.present(new ClienteDTO(1L, 8L, "52998224725", "Cliente Teste", "cliente@oficina.com"));
+        assertEquals(8L, clienteAdapter.viewModel().pessoaId());
         assertEquals("52998224725", clienteAdapter.viewModel().documento());
+        assertEquals("Cliente Teste", clienteAdapter.viewModel().nome());
         assertEquals("cliente@oficina.com", clienteAdapter.viewModel().email());
 
         var veiculoAdapter = new VeiculoPresenterAdapter();

@@ -8,24 +8,36 @@ import java.util.Set;
 
 public final class Usuario {
     private final long id;
+    private long pessoaId;
     private String nome;
     private String documento;
-    private String email;
     private UsuarioStatus status;
     private Set<TipoDePapel> papeis;
 
     public Usuario(long id,
+                   long pessoaId,
                    String nome,
                    String documento,
-                   String email,
                    UsuarioStatus status,
                    Set<TipoDePapel> papeis) {
         this.id = id;
+        this.pessoaId = pessoaId;
         this.nome = nome == null ? null : nome.trim();
-        this.documento = Objects.requireNonNull(documento, "Documento é obrigatório");
-        this.email = email == null ? null : email.trim();
+        this.documento = documento;
         this.status = Objects.requireNonNull(status, "Status é obrigatório");
         this.papeis = normalizarPapeis(papeis);
+    }
+
+    public Usuario(long id,
+                   String nome,
+                   String documento,
+                   UsuarioStatus status,
+                   Set<TipoDePapel> papeis) {
+        this(id, 0, nome, documento, status, papeis);
+    }
+
+    public void alteraPessoaPara(long pessoaId) {
+        this.pessoaId = pessoaId;
     }
 
     public void alteraNomePara(String nome) {
@@ -34,10 +46,6 @@ public final class Usuario {
 
     public void alteraDocumentoPara(String documento) {
         this.documento = Objects.requireNonNull(documento, "Documento é obrigatório");
-    }
-
-    public void alteraEmailPara(String email) {
-        this.email = email == null ? null : email.trim();
     }
 
     public void alteraStatusPara(UsuarioStatus status) {
@@ -52,16 +60,16 @@ public final class Usuario {
         return id;
     }
 
+    public long pessoaId() {
+        return pessoaId;
+    }
+
     public String nome() {
         return nome;
     }
 
     public String documento() {
         return documento;
-    }
-
-    public String email() {
-        return email;
     }
 
     public UsuarioStatus status() {

@@ -6,9 +6,11 @@ import br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory;
 import br.com.oficina.atendimento.core.entities.cliente.Email;
 import br.com.oficina.atendimento.core.exceptions.ClienteNaoEncontradoException;
 import br.com.oficina.atendimento.core.interfaces.gateway.ClienteGateway;
-import br.com.oficina.common.core.entities.TipoPessoa;
+import br.com.oficina.common.core.entities.Pessoa;
 import br.com.oficina.common.framework.db.pessoa.PessoaEntity;
+import br.com.oficina.common.framework.db.pessoa.PessoaDataSourceAdapter;
 import jakarta.enterprise.context.ApplicationScoped;
+import io.smallrye.mutiny.Uni;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -25,11 +27,28 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
     }
 
     @Override public CompletableFuture<Long> adicionar(Cliente cliente) {
-        return resolverPessoa(null, cliente)
+        return resolverPessoaPorId(cliente.pessoaId(), null)
                 .flatMap(pessoa -> {
                     var clienteEntity = toEntity(cliente, pessoa);
                     return clienteEntity.persistir();
                 })
+                .map(ClienteEntity::id)
+                .subscribeAsCompletionStage();
+    }
+
+    @Override public CompletableFuture<Long> adicionarCompleto(Pessoa pessoa, Email email) {
+        return resolverPessoaPorDocumento(pessoa)
+                .flatMap(pessoaEntity -> ClienteEntity.buscarPorPessoaId(pessoaEntity.id)
+                        .flatMap(clienteExistente -> {
+                            if (clienteExistente != null) {
+                                return Uni.createFrom().failure(new IllegalArgumentException("Já existe cliente vinculado à pessoa informada"));
+                            }
+
+                            var clienteEntity = new ClienteEntity();
+                            clienteEntity.pessoa = pessoaEntity;
+                            clienteEntity.email = email.valor();
+                            return clienteEntity.persistir();
+                        }))
                 .map(ClienteEntity::id)
                 .subscribeAsCompletionStage();
     }
@@ -51,16 +70,28 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
 
     @Override public CompletableFuture<Void> buscaParaAtualizar(long id, Consumer<Cliente> atualizacao) {
         return ClienteEntity.buscaParaAtualizar(id)
-                .onItem().ifNotNull().transformToUni(clienteEntity -> {
+                .onItem().ifNull().failWith(() -> new ClienteNaoEncontradoException(id))
+                .flatMap(clienteEntity -> {
                     var clienteAtual = toDomain(clienteEntity);
                     atualizacao.accept(clienteAtual);
-                    return resolverPessoa(clienteEntity, clienteAtual)
+                    return resolverPessoaPorId(clienteAtual.pessoaId(), clienteEntity.id)
                             .invoke(pessoa -> {
                                 clienteEntity.pessoa = pessoa;
-                                clienteEntity.documento = clienteAtual.documento().valor();
                                 clienteEntity.email = clienteAtual.email().valor();
                             });
                 })
+                .replaceWithVoid()
+                .subscribeAsCompletionStage();
+    }
+
+    @Override public CompletableFuture<Void> atualizarCompleto(long id, Pessoa pessoa, Email email) {
+        return ClienteEntity.buscaParaAtualizar(id)
+                .onItem().ifNull().failWith(() -> new ClienteNaoEncontradoException(id))
+                .flatMap(clienteEntity -> resolverPessoaParaAtualizacao(clienteEntity, pessoa)
+                        .invoke(pessoaEntity -> {
+                            clienteEntity.pessoa = pessoaEntity;
+                            clienteEntity.email = email.valor();
+                        }))
                 .replaceWithVoid()
                 .subscribeAsCompletionStage();
     }
@@ -74,57 +105,71 @@ public class ClienteDataSourceAdapter implements ClienteGateway {
     private static Cliente toDomain(ClienteEntity clienteEntity) {
         return new Cliente(
                 clienteEntity.id,
-                DocumentoFactory.from(clienteEntity.documento),
+                clienteEntity.pessoa.id,
+                DocumentoFactory.from(clienteEntity.pessoa.documento),
+                clienteEntity.pessoa.nome,
                 new Email(clienteEntity.email));
     }
 
     private static ClienteEntity toEntity(Cliente cliente, PessoaEntity pessoa) {
         var clienteEntity = new ClienteEntity();
         clienteEntity.pessoa = pessoa;
-        clienteEntity.documento = cliente.documento().valor();
         clienteEntity.email = cliente.email().valor();
         return clienteEntity;
     }
 
-    private static io.smallrye.mutiny.Uni<PessoaEntity> resolverPessoa(ClienteEntity clienteEntity, Cliente cliente) {
-        var pessoaAtual = clienteEntity == null ? null : clienteEntity.pessoa;
-        return PessoaEntity.buscarPorDocumento(cliente.documento().valor())
+    private static Uni<PessoaEntity> resolverPessoaPorId(long pessoaId, Long clientePermitidoId) {
+        if (pessoaId <= 0) {
+            return Uni.createFrom().failure(new IllegalArgumentException("Pessoa é obrigatória para criar cliente"));
+        }
+
+        return PessoaEntity.buscarPorId(pessoaId)
+                .onItem().ifNull().failWith(() -> new IllegalArgumentException("Pessoa informada não existe"))
+                .flatMap(pessoa -> ClienteEntity.buscarPorPessoaId(pessoa.id)
+                        .flatMap(clienteExistente -> {
+                            if (clienteExistente != null
+                                    && (clientePermitidoId == null || !clienteExistente.id.equals(clientePermitidoId))) {
+                                return Uni.createFrom().failure(new IllegalArgumentException("Já existe cliente vinculado à pessoa informada"));
+                            }
+
+                            return Uni.createFrom().item(pessoa);
+                        }));
+    }
+
+    private static Uni<PessoaEntity> resolverPessoaPorDocumento(Pessoa pessoa) {
+        return PessoaEntity.buscarPorDocumento(pessoa.documento().valor())
                 .flatMap(pessoaEncontrada -> {
                     if (pessoaEncontrada == null) {
-                        return atualizarOuCriarPessoa(pessoaAtual, cliente);
+                        return PessoaDataSourceAdapter.toEntity(pessoa).persistir();
                     }
 
-                    if (pessoaAtual != null && pessoaEncontrada.id.equals(pessoaAtual.id)) {
-                        preencherPessoa(pessoaAtual, cliente);
-                        return io.smallrye.mutiny.Uni.createFrom().item(pessoaAtual);
+                    PessoaDataSourceAdapter.preencherPessoa(pessoaEncontrada, pessoa);
+                    return Uni.createFrom().item(pessoaEncontrada);
+                });
+    }
+
+    private static Uni<PessoaEntity> resolverPessoaParaAtualizacao(ClienteEntity clienteEntity, Pessoa pessoa) {
+        return PessoaEntity.buscarPorDocumento(pessoa.documento().valor())
+                .flatMap(pessoaEncontrada -> {
+                    if (pessoaEncontrada == null) {
+                        PessoaDataSourceAdapter.preencherPessoa(clienteEntity.pessoa, pessoa);
+                        return Uni.createFrom().item(clienteEntity.pessoa);
+                    }
+
+                    if (pessoaEncontrada.id.equals(clienteEntity.pessoa.id)) {
+                        PessoaDataSourceAdapter.preencherPessoa(pessoaEncontrada, pessoa);
+                        return Uni.createFrom().item(pessoaEncontrada);
                     }
 
                     return ClienteEntity.buscarPorPessoaId(pessoaEncontrada.id)
                             .flatMap(outroCliente -> {
-                                if (outroCliente != null && (clienteEntity == null || !outroCliente.id.equals(clienteEntity.id))) {
-                                    return io.smallrye.mutiny.Uni.createFrom().failure(new IllegalArgumentException("Já existe cliente vinculado ao documento informado"));
+                                if (outroCliente != null && !outroCliente.id.equals(clienteEntity.id)) {
+                                    return Uni.createFrom().failure(new IllegalArgumentException("Já existe cliente vinculado à pessoa informada"));
                                 }
 
-                                preencherPessoa(pessoaEncontrada, cliente);
-                                return io.smallrye.mutiny.Uni.createFrom().item(pessoaEncontrada);
+                                PessoaDataSourceAdapter.preencherPessoa(pessoaEncontrada, pessoa);
+                                return Uni.createFrom().item(pessoaEncontrada);
                             });
                 });
-    }
-
-    private static io.smallrye.mutiny.Uni<PessoaEntity> atualizarOuCriarPessoa(PessoaEntity pessoaAtual, Cliente cliente) {
-        if (pessoaAtual != null) {
-            preencherPessoa(pessoaAtual, cliente);
-            return io.smallrye.mutiny.Uni.createFrom().item(pessoaAtual);
-        }
-
-        var novaPessoa = new PessoaEntity();
-        preencherPessoa(novaPessoa, cliente);
-        return novaPessoa.persistir();
-    }
-
-    private static void preencherPessoa(PessoaEntity pessoa, Cliente cliente) {
-        pessoa.documento = cliente.documento().valor();
-        pessoa.tipoPessoa = TipoPessoa.fromDocumento(cliente.documento().valor());
-        pessoa.email = cliente.email().valor();
     }
 }

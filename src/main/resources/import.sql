@@ -1,9 +1,9 @@
-INSERT INTO public.pessoa (id, documento, tipo_pessoa, nome, email) VALUES
-    (1, '84191404067', 'FISICA', 'Administrador Laboratorio', 'admin@oficina.com'),
-    (2, '36655462007', 'FISICA', 'Mecanico Laboratorio', 'mecanico@oficina.com'),
-    (3, '17245011010', 'FISICA', 'Recepcionista Laboratorio', 'recepcao@oficina.com'),
-    (4, '50132372037', 'FISICA', 'Cliente Laboratorio 1', 'cliente1@oficina.com'),
-    (5, '07250103040', 'FISICA', 'Cliente Laboratorio 2', 'cliente2@oficina.com');
+INSERT INTO public.pessoa (id, documento, tipo_pessoa, nome) VALUES
+    (1, '84191404067', 'FISICA', 'Administrador Laboratorio'),
+    (2, '36655462007', 'FISICA', 'Mecanico Laboratorio'),
+    (3, '17245011010', 'FISICA', 'Recepcionista Laboratorio'),
+    (4, '50132372037', 'FISICA', 'Cliente Laboratorio 1'),
+    (5, '68996860077', 'FISICA', 'Cliente Laboratorio 2');
 SELECT setval('pessoa_seq', (SELECT MAX(id) FROM public.pessoa));
 
 INSERT INTO public.papel (id, nome) VALUES
@@ -25,9 +25,9 @@ INSERT INTO public.usuario_papel (usuario_id, papel_id) VALUES
     (2, 2),
     (3, 3);
 
-INSERT INTO public.cliente (id, pessoa_id, documento, email) VALUES
-    (1, 4, '50132372037', 'cliente1@oficina.com'),
-    (2, 5, '07250103040', 'cliente2@oficina.com');
+INSERT INTO public.cliente (id, pessoa_id, email) VALUES
+    (1, 4, 'cliente1@oficina.com'),
+    (2, 5, 'cliente2@oficina.com');
 SELECT setval('cliente_seq', (SELECT MAX(id) FROM public.cliente));
 
 INSERT INTO public.veiculo (id, placa, marca, modelo, ano) VALUES

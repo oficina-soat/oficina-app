@@ -101,7 +101,7 @@ class OrdemDeServicoUseCasesTest {
         var catalogoGateway = mock(CatalogoGateway.class);
         var presenter = mock(IdentificadorOrdemDeServicoPresenterAdapter.class);
         var estadoSender = mock(EstadoDaOrdemDeServicoSender.class);
-        when(clienteGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(1L));
+        when(clienteGateway.adicionarCompleto(any(), any())).thenReturn(CompletableFuture.completedFuture(1L));
         when(veiculoGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(2L));
         when(osGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(null));
         when(estadoSender.enviar(any())).thenReturn(CompletableFuture.completedFuture(null));
@@ -115,6 +115,7 @@ class OrdemDeServicoUseCasesTest {
 
         useCase.executar(new AbrirOrdemDeServicoCompletaUseCase.Command(
                 "52998224725",
+                null,
                 "cliente@oficina.com",
                 "ABC1234",
                 "marca",
@@ -143,7 +144,7 @@ class OrdemDeServicoUseCasesTest {
         var catalogoGateway = mock(CatalogoGateway.class);
         var presenter = mock(IdentificadorOrdemDeServicoPresenterAdapter.class);
         var estadoSender = mock(EstadoDaOrdemDeServicoSender.class);
-        when(clienteGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(1L));
+        when(clienteGateway.adicionarCompleto(any(), any())).thenReturn(CompletableFuture.completedFuture(1L));
         when(veiculoGateway.adicionar(any())).thenReturn(CompletableFuture.completedFuture(2L));
         when(catalogoGateway.buscaServicoPorId(11L)).thenReturn(CompletableFuture.completedFuture(new CatalogoGateway.Servico("Alinhamento")));
         when(catalogoGateway.buscaPecaPorId(10L)).thenReturn(CompletableFuture.completedFuture(new CatalogoGateway.Peca("Pastilha de freio")));
@@ -159,6 +160,7 @@ class OrdemDeServicoUseCasesTest {
 
         useCase.executar(new AbrirOrdemDeServicoCompletaUseCase.Command(
                 "52998224725",
+                "Cliente OS",
                 "cliente@oficina.com",
                 "ABC1234",
                 "marca",

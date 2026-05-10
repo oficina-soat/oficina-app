@@ -70,6 +70,7 @@ public class OrdemDeServicoCommandController {
     public CompletableFuture<Void> abrirOrdemDeServicoCompleta(AbrirOrdemDeServicoCompletaRequest request) {
         var command = new AbrirOrdemDeServicoCompletaUseCase.Command(
                 request.documentoDoCliente(),
+                request.nomeDoCliente(),
                 request.emailDoCliente(),
                 request.placaDoVeiculo(),
                 request.marcaDoVeiculo(),
@@ -148,6 +149,7 @@ public class OrdemDeServicoCommandController {
 
     public record AbrirOrdemDeServicoCompletaRequest(
             String documentoDoCliente,
+            String nomeDoCliente,
             String emailDoCliente,
             String placaDoVeiculo,
             String marcaDoVeiculo,

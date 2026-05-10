@@ -1,6 +1,5 @@
 package br.com.oficina.atendimento.core.usecases.ordem_de_servico;
 
-import br.com.oficina.atendimento.core.entities.cliente.Cliente;
 import br.com.oficina.atendimento.core.entities.cliente.DocumentoFactory;
 import br.com.oficina.atendimento.core.entities.cliente.Email;
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.OrdemDeServico;
@@ -16,6 +15,7 @@ import br.com.oficina.atendimento.core.interfaces.gateway.OrdemDeServicoGateway;
 import br.com.oficina.atendimento.core.interfaces.gateway.VeiculoGateway;
 import br.com.oficina.atendimento.core.interfaces.presenter.OrdemDeServicoPresenter;
 import br.com.oficina.atendimento.core.interfaces.presenter.dto.OrdemDeServicoDTO;
+import br.com.oficina.common.core.entities.Pessoa;
 import br.com.oficina.common.framework.observability.AppObservability;
 
 import java.math.BigDecimal;
@@ -67,14 +67,14 @@ public class AbrirOrdemDeServicoCompletaUseCase {
         var documento = DocumentoFactory.from(command.documentoDoCliente());
         var placa = new PlacaDeVeiculo(command.placaDoVeiculo());
 
-        var cliente = new Cliente(0, documento, new Email(command.emailDoCliente()));
+        var pessoa = new Pessoa(0, documento, nomeDoCliente(command));
         var veiculo = new Veiculo(
                 0,
                 placa,
                 new MarcaDeVeiculo(command.marcaDoVeiculo()),
                 new ModeloDeVeiculo(command.modeloDoVeiculo()),
                 command.ano());
-        return clienteGateway.adicionar(cliente)
+        return clienteGateway.adicionarCompleto(pessoa, new Email(command.emailDoCliente()))
                 .thenCompose(clienteId -> veiculoGateway.adicionar(veiculo)
                         .thenApply(veiculoId -> {
                             var ordemDeServico = OrdemDeServicoFactory.criarNovo(clienteId, veiculoId);
@@ -118,7 +118,16 @@ public class AbrirOrdemDeServicoCompletaUseCase {
                 (fluxo1, fluxo2) -> fluxo1.thenCompose(_ -> fluxo2));
     }
 
+    private static String nomeDoCliente(Command command) {
+        if (command.nomeDoCliente() != null && !command.nomeDoCliente().isBlank()) {
+            return command.nomeDoCliente().trim();
+        }
+
+        return "Cliente " + DocumentoFactory.from(command.documentoDoCliente()).valor();
+    }
+
     public record Command(String documentoDoCliente,
+                          String nomeDoCliente,
                           String emailDoCliente,
                           String placaDoVeiculo,
                           String marcaDoVeiculo,

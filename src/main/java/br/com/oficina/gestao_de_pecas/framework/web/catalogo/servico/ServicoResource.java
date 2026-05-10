@@ -3,6 +3,7 @@ package br.com.oficina.gestao_de_pecas.framework.web.catalogo.servico;
 import br.com.oficina.common.web.TipoDePapelValues;
 import br.com.oficina.gestao_de_pecas.interfaces.controllers.ServicoController;
 import br.com.oficina.gestao_de_pecas.interfaces.presenters.ServicoPresenterAdapter;
+import io.quarkus.hibernate.reactive.panache.common.WithSession;
 import io.quarkus.hibernate.reactive.panache.common.WithTransaction;
 import io.smallrye.mutiny.Uni;
 import jakarta.annotation.security.RolesAllowed;
@@ -33,6 +34,7 @@ public class ServicoResource {
         return Uni.createFrom().completionStage(servicoController.adicionarServico(servicoRequest));
     }
 
+    @WithSession
     @GET
     @Path("{id}")
     @Produces(MediaType.APPLICATION_JSON)
