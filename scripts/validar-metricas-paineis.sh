@@ -11,6 +11,9 @@ APP_LOCAL_PORT="${APP_LOCAL_PORT:-8080}"
 APP_SERVICE_PORT="${APP_SERVICE_PORT:-8080}"
 ENABLE_PORT_FORWARD="${ENABLE_PORT_FORWARD:-true}"
 STOP_PORT_FORWARD_ON_EXIT="${STOP_PORT_FORWARD_ON_EXIT:-false}"
+AWS_REGION="${AWS_REGION:-us-east-1}"
+EKS_CLUSTER_NAME="${EKS_CLUSTER_NAME:-eks-lab}"
+UPDATE_KUBECONFIG="${UPDATE_KUBECONFIG:-auto}"
 
 APP_BASE_URL="${APP_BASE_URL:-http://localhost:${APP_LOCAL_PORT}}"
 AUTH_MODE="${AUTH_MODE:-auto}"
@@ -45,6 +48,9 @@ Variaveis principais:
   APP_NAMESPACE             Namespace Kubernetes. Default: default
   APP_SERVICE               Service Kubernetes. Default: oficina-app
   APP_LOCAL_PORT            Porta local do port-forward. Default: 8080
+  UPDATE_KUBECONFIG         auto|true|false. Default: auto
+  EKS_CLUSTER_NAME          Nome do cluster EKS. Default: eks-lab
+  AWS_REGION                Regiao AWS. Default: us-east-1
   AUTH_MODE                 auto|auth-api|dev-jwt. Default: auto
   OFICINA_AUTH_BASE_URL     Base do auth/API Gateway para POST /auth/token
   AUTH_PASSWORD             Senha dos usuarios seed do lab. Default: secret
@@ -73,6 +79,61 @@ require_cmd() {
 local_port_open() {
   local port="$1"
   bash -c ":</dev/tcp/127.0.0.1/${port}" >/dev/null 2>&1
+}
+
+app_http_available() {
+  curl -fsS --max-time 3 "${APP_BASE_URL}/q/health/ready" >/dev/null 2>&1 \
+    || curl -fsS --max-time 3 "${APP_BASE_URL}/q/health/live" >/dev/null 2>&1
+}
+
+current_kube_server() {
+  kubectl config view --minify --output=jsonpath='{.clusters[0].cluster.server}' 2>/dev/null || true
+}
+
+eks_cluster_endpoint() {
+  aws eks describe-cluster \
+    --region "${AWS_REGION}" \
+    --name "${EKS_CLUSTER_NAME}" \
+    --query 'cluster.endpoint' \
+    --output text 2>/dev/null || true
+}
+
+update_kubeconfig() {
+  log "Atualizando kubeconfig do cluster ${EKS_CLUSTER_NAME} em ${AWS_REGION}."
+  aws eks update-kubeconfig --region "${AWS_REGION}" --name "${EKS_CLUSTER_NAME}" >/dev/null
+}
+
+ensure_kubeconfig() {
+  case "${UPDATE_KUBECONFIG}" in
+    true)
+      require_cmd aws
+      update_kubeconfig
+      ;;
+    auto)
+      if ! command -v aws >/dev/null 2>&1; then
+        log "AWS CLI nao encontrado; usando kubeconfig atual."
+        return 0
+      fi
+
+      local current_server expected_endpoint
+      current_server="$(current_kube_server)"
+      expected_endpoint="$(eks_cluster_endpoint)"
+
+      if [[ -z "${expected_endpoint}" || "${expected_endpoint}" == "None" ]]; then
+        log "Nao foi possivel consultar o cluster ${EKS_CLUSTER_NAME}; usando kubeconfig atual."
+        return 0
+      fi
+
+      if [[ "${current_server}" != "${expected_endpoint}" ]]; then
+        update_kubeconfig
+      fi
+      ;;
+    false)
+      ;;
+    *)
+      fail "UPDATE_KUBECONFIG deve ser auto, true ou false."
+      ;;
+  esac
 }
 
 pid_is_port_forward() {
@@ -107,6 +168,7 @@ start_port_forward() {
 
   require_cmd kubectl
   mkdir -p "${PF_DIR}"
+  ensure_kubeconfig
 
   local pid_file="${PF_DIR}/${APP_SERVICE}.pid"
   local log_file="${PF_DIR}/${APP_SERVICE}.log"
@@ -126,8 +188,14 @@ start_port_forward() {
     return 0
   fi
 
-  kubectl get svc "${APP_SERVICE}" --namespace "${APP_NAMESPACE}" >/dev/null 2>&1 \
-    || fail "Service ${APP_NAMESPACE}/${APP_SERVICE} nao encontrado ou cluster inacessivel."
+  if ! kubectl get svc "${APP_SERVICE}" --namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
+    if app_http_available; then
+      log "Service ${APP_NAMESPACE}/${APP_SERVICE} nao encontrado, mas ${APP_BASE_URL} ja responde; seguindo sem port-forward."
+      return 0
+    fi
+
+    fail "Service ${APP_NAMESPACE}/${APP_SERVICE} nao encontrado ou cluster inacessivel. Para lab, tente UPDATE_KUBECONFIG=true EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME} AWS_REGION=${AWS_REGION} ./scripts/validar-metricas-paineis.sh. Para app local, rode com ENABLE_PORT_FORWARD=false APP_BASE_URL=${APP_BASE_URL}."
+  fi
 
   log "Iniciando port-forward ${APP_NAMESPACE}/${APP_SERVICE} ${APP_LOCAL_PORT}:${APP_SERVICE_PORT}."
   : > "${log_file}"
@@ -491,7 +559,7 @@ main() {
   mkdir -p "${TMP_DIR}"
   trap cleanup EXIT
 
-  log "Configuracao: APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, RUN_LABEL=${RUN_LABEL}."
+  log "Configuracao: APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, RUN_LABEL=${RUN_LABEL}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}."
   start_port_forward
   authenticate
   test_public_and_security
