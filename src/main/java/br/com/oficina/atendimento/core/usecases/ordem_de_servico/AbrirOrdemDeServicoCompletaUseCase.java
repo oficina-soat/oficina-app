@@ -19,6 +19,7 @@ import br.com.oficina.common.core.entities.Pessoa;
 import br.com.oficina.common.framework.observability.AppObservability;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 
@@ -79,8 +80,9 @@ public class AbrirOrdemDeServicoCompletaUseCase {
                         .thenApply(veiculoId -> {
                             var ordemDeServico = OrdemDeServicoFactory.criarNovo(clienteId, veiculoId);
                             var estadoAnterior = ordemDeServico.estadoDaOrdemDeServico();
+                            var estadoAnteriorDesde = ordemDeServico.dataDoEstado();
                             ordemDeServico.iniciarDiagnostico();
-                            return new OrdemAberta(ordemDeServico, estadoAnterior);
+                            return new OrdemAberta(ordemDeServico, estadoAnterior, estadoAnteriorDesde);
                         })
                         .thenCompose(ordemAberta -> incluirServicos(ordemAberta.ordemDeServico(), command.servicos())
                                 .thenCompose(_ -> incluirPecas(ordemAberta.ordemDeServico(), command.pecas()))
@@ -90,7 +92,8 @@ public class AbrirOrdemDeServicoCompletaUseCase {
                                         TipoDeEstadoDaOrdemDeServico.EM_DIAGNOSTICO))
                                 .thenCompose(_ -> transicaoDeEstadoDaOrdemDeServicoService.notificarMudancaSeHouver(
                                         ordemAberta.ordemDeServico(),
-                                        ordemAberta.estadoAnterior()))
+                                        ordemAberta.estadoAnterior(),
+                                        ordemAberta.estadoAnteriorDesde()))
                                 .thenAccept(_ -> ordemDeServicoPresenter.present(OrdemDeServicoDTO.fromDomain(ordemAberta.ordemDeServico())))));
     }
 
@@ -143,6 +146,9 @@ public class AbrirOrdemDeServicoCompletaUseCase {
     public record PecaItemCommand(long pecaId, BigDecimal quantidade, BigDecimal valorUnitario) {
     }
 
-    private record OrdemAberta(OrdemDeServico ordemDeServico, TipoDeEstadoDaOrdemDeServico estadoAnterior) {
+    private record OrdemAberta(
+            OrdemDeServico ordemDeServico,
+            TipoDeEstadoDaOrdemDeServico estadoAnterior,
+            Instant estadoAnteriorDesde) {
     }
 }
