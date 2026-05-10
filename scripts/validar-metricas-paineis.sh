@@ -7,6 +7,8 @@ PF_DIR="${ROOT_DIR}/.tmp/port-forward"
 
 APP_NAMESPACE="${APP_NAMESPACE:-default}"
 APP_SERVICE="${APP_SERVICE:-oficina-app}"
+AUTH_CONFIGMAP="${AUTH_CONFIGMAP:-oficina-app-config}"
+K8S_JWT_SECRET="${K8S_JWT_SECRET:-oficina-jwt-keys}"
 APP_LOCAL_PORT="${APP_LOCAL_PORT:-8080}"
 APP_SERVICE_PORT="${APP_SERVICE_PORT:-8080}"
 ENABLE_PORT_FORWARD="${ENABLE_PORT_FORWARD:-true}"
@@ -19,6 +21,8 @@ APP_BASE_URL="${APP_BASE_URL:-http://localhost:${APP_LOCAL_PORT}}"
 AUTH_MODE="${AUTH_MODE:-auto}"
 AUTH_BASE_URL="${OFICINA_AUTH_BASE_URL:-${AUTH_BASE_URL:-}}"
 AUTH_PASSWORD="${AUTH_PASSWORD:-secret}"
+TOKEN_ISSUER=""
+TOKEN_JWT_DIR=""
 AUTH_ADMIN_CPF="${AUTH_ADMIN_CPF:-84191404067}"
 AUTH_MECANICO_CPF="${AUTH_MECANICO_CPF:-36655462007}"
 AUTH_RECEPCIONISTA_CPF="${AUTH_RECEPCIONISTA_CPF:-17245011010}"
@@ -47,6 +51,8 @@ Variaveis principais:
   ENABLE_PORT_FORWARD       true|false. Default: true
   APP_NAMESPACE             Namespace Kubernetes. Default: default
   APP_SERVICE               Service Kubernetes. Default: oficina-app
+  AUTH_CONFIGMAP            ConfigMap com OFICINA_AUTH_ISSUER. Default: oficina-app-config
+  K8S_JWT_SECRET            Secret Kubernetes com chaves JWT. Default: oficina-jwt-keys
   APP_LOCAL_PORT            Porta local do port-forward. Default: 8080
   UPDATE_KUBECONFIG         auto|true|false. Default: auto
   EKS_CLUSTER_NAME          Nome do cluster EKS. Default: eks-lab
@@ -275,13 +281,53 @@ auth_api_token() {
 dev_jwt_token() {
   local cpf="$1"
   local roles="$2"
-  "${ROOT_DIR}/scripts/generate-dev-jwt-token.sh" --subject "${cpf}" --roles "${roles}" --ttl 7200
+  JWT_DIR="${TOKEN_JWT_DIR:-${JWT_DIR:-}}" \
+    OFICINA_AUTH_ISSUER="${TOKEN_ISSUER:-${OFICINA_AUTH_ISSUER:-oficina-api}}" \
+    "${ROOT_DIR}/scripts/generate-dev-jwt-token.sh" --subject "${cpf}" --roles "${roles}" --ttl 7200
+}
+
+discover_k8s_auth_config() {
+  [[ "${ENABLE_PORT_FORWARD}" == "true" ]] || return 0
+  command -v kubectl >/dev/null 2>&1 || return 0
+
+  local issuer
+  issuer="$(kubectl get configmap "${AUTH_CONFIGMAP}" --namespace "${APP_NAMESPACE}" \
+    -o jsonpath='{.data.OFICINA_AUTH_ISSUER}' 2>/dev/null || true)"
+
+  if [[ -n "${issuer}" ]]; then
+    TOKEN_ISSUER="${issuer%/}"
+    log "Issuer de autenticacao descoberto no ConfigMap ${APP_NAMESPACE}/${AUTH_CONFIGMAP}: ${TOKEN_ISSUER}."
+
+    if [[ -z "${AUTH_BASE_URL}" && ( "${TOKEN_ISSUER}" == http://* || "${TOKEN_ISSUER}" == https://* ) ]]; then
+      AUTH_BASE_URL="${TOKEN_ISSUER}"
+      log "AUTH_BASE_URL nao informado; usando issuer descoberto para autenticar via /auth/token."
+    fi
+  fi
+
+  if [[ -n "${TOKEN_ISSUER}" ]]; then
+    local jwt_dir="${TMP_DIR}/k8s-jwt"
+    mkdir -p "${jwt_dir}"
+    if kubectl get secret "${K8S_JWT_SECRET}" --namespace "${APP_NAMESPACE}" \
+      -o jsonpath='{.data.privateKey\.pem}' 2>/dev/null | base64 -d > "${jwt_dir}/privateKey.pem" \
+      && grep -q "BEGIN PRIVATE KEY" "${jwt_dir}/privateKey.pem"; then
+      TOKEN_JWT_DIR="${jwt_dir}"
+      chmod 600 "${jwt_dir}/privateKey.pem"
+      log "Chave privada JWT descoberta no Secret ${APP_NAMESPACE}/${K8S_JWT_SECRET}; usando JWT compativel com o ambiente."
+    else
+      rm -f "${jwt_dir}/privateKey.pem"
+    fi
+  fi
 }
 
 authenticate() {
+  discover_k8s_auth_config
+
   case "${AUTH_MODE}" in
     auto)
-      if [[ -n "${AUTH_BASE_URL}" ]]; then
+      if [[ -n "${TOKEN_JWT_DIR}" ]]; then
+        AUTH_MODE="dev-jwt"
+        log "AUTH_MODE=auto: usando JWT assinado com a chave do Secret Kubernetes."
+      elif [[ -n "${AUTH_BASE_URL}" ]]; then
         AUTH_MODE="auth-api"
       else
         AUTH_MODE="dev-jwt"
