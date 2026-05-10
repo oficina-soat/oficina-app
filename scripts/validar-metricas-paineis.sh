@@ -15,9 +15,13 @@ ENABLE_PORT_FORWARD="${ENABLE_PORT_FORWARD:-true}"
 STOP_PORT_FORWARD_ON_EXIT="${STOP_PORT_FORWARD_ON_EXIT:-false}"
 AWS_REGION="${AWS_REGION:-us-east-1}"
 EKS_CLUSTER_NAME="${EKS_CLUSTER_NAME:-eks-lab}"
+API_GATEWAY_ID="${API_GATEWAY_ID:-}"
+API_GATEWAY_NAME="${API_GATEWAY_NAME:-${EKS_CLUSTER_NAME}-http-api}"
 UPDATE_KUBECONFIG="${UPDATE_KUBECONFIG:-auto}"
 
+APP_BASE_URL_INFORMED="${APP_BASE_URL+x}"
 APP_BASE_URL="${APP_BASE_URL:-http://localhost:${APP_LOCAL_PORT}}"
+MODO_ACESSO="${MODO_ACESSO:-${ACCESS_MODE:-}}"
 AUTH_MODE="${AUTH_MODE:-auto}"
 AUTH_BASE_URL="${OFICINA_AUTH_BASE_URL:-${AUTH_BASE_URL:-}}"
 AUTH_PASSWORD="${AUTH_PASSWORD:-secret}"
@@ -52,8 +56,9 @@ Objetivo:
   e dashboards que usam as metricas/logs do laboratorio.
 
 Variaveis principais:
+  MODO_ACESSO              encaminhamento|aws. Default: encaminhamento
   APP_BASE_URL              Base da aplicacao. Default: http://localhost:8080
-  ENABLE_PORT_FORWARD       true|false. Default: true
+  ENABLE_PORT_FORWARD       Compatibilidade: false equivale a MODO_ACESSO=aws
   APP_NAMESPACE             Namespace Kubernetes. Default: default
   APP_SERVICE               Service Kubernetes. Default: oficina-app
   AUTH_CONFIGMAP            ConfigMap com OFICINA_AUTH_ISSUER. Default: oficina-app-config
@@ -61,6 +66,8 @@ Variaveis principais:
   APP_LOCAL_PORT            Porta local do port-forward. Default: 8080
   UPDATE_KUBECONFIG         auto|true|false. Default: auto
   EKS_CLUSTER_NAME          Nome do cluster EKS. Default: eks-lab
+  API_GATEWAY_ID            ID do HTTP API Gateway. Opcional
+  API_GATEWAY_NAME          Nome do HTTP API Gateway. Default: eks-lab-http-api
   AWS_REGION                Regiao AWS. Default: us-east-1
   AUTH_MODE                 auto|auth-api|dev-jwt. Default: auto
   OFICINA_AUTH_BASE_URL     Base do auth/API Gateway para POST /auth/token
@@ -73,10 +80,10 @@ Variaveis principais:
   STOP_PORT_FORWARD_ON_EXIT true|false. Default: false
 
 Exemplos:
-  OFICINA_AUTH_BASE_URL=https://example.execute-api.us-east-1.amazonaws.com ./scripts/validar-metricas-paineis.sh
-  AUTH_MODE=dev-jwt ./scripts/validar-metricas-paineis.sh
+  ./scripts/validar-metricas-paineis.sh
+  MODO_ACESSO=aws ./scripts/validar-metricas-paineis.sh
   EXECUCOES=5 ./scripts/validar-metricas-paineis.sh
-  RUN_FOREVER=true PAUSE_SECONDS=10 ./scripts/validar-metricas-paineis.sh
+  MODO_ACESSO=aws RUN_FOREVER=true PAUSE_SECONDS=10 ./scripts/validar-metricas-paineis.sh
 EOF
 }
 
@@ -112,6 +119,81 @@ validate_loop_config() {
   if [[ -n "${RUN_SEED_BASE}" ]] && ! [[ "${RUN_SEED_BASE}" =~ ^[0-9]+$ ]]; then
     fail "RUN_SEED deve conter apenas numeros."
   fi
+}
+
+normalize_access_mode() {
+  local mode="$1"
+  case "${mode}" in
+    ""|encaminhamento|port-forward|port_forward|pf)
+      printf 'encaminhamento'
+      ;;
+    aws|gateway|api-gateway|api_gateway|sem-encaminhamento|sem_encaminhamento|sem_encaminhamento_de_porta)
+      printf 'aws'
+      ;;
+    *)
+      fail "MODO_ACESSO deve ser encaminhamento ou aws."
+      ;;
+  esac
+}
+
+resolve_api_gateway_id() {
+  if [[ -n "${API_GATEWAY_ID}" ]]; then
+    printf '%s' "${API_GATEWAY_ID}"
+    return
+  fi
+
+  require_cmd aws
+  aws --region "${AWS_REGION}" apigatewayv2 get-apis \
+    --query "Items[?Name=='${API_GATEWAY_NAME}'].ApiId | [0]" \
+    --output text 2>/dev/null | sed '/^None$/d'
+}
+
+api_gateway_endpoint() {
+  local api_id="$1"
+  require_cmd aws
+  aws --region "${AWS_REGION}" apigatewayv2 get-api \
+    --api-id "${api_id}" \
+    --query 'ApiEndpoint' \
+    --output text 2>/dev/null | sed '/^None$/d'
+}
+
+discover_aws_app_base_url() {
+  local api_id
+  local endpoint
+
+  api_id="$(resolve_api_gateway_id || true)"
+  [[ -n "${api_id}" ]] || fail "Nao foi possivel descobrir o API Gateway. Informe API_GATEWAY_ID ou API_GATEWAY_NAME."
+
+  endpoint="$(api_gateway_endpoint "${api_id}")"
+  [[ -n "${endpoint}" ]] || fail "Nao foi possivel consultar o endpoint do API Gateway ${api_id}."
+
+  printf '%s' "${endpoint%/}"
+}
+
+configure_access_mode() {
+  if [[ -z "${MODO_ACESSO}" && "${ENABLE_PORT_FORWARD}" == "false" ]]; then
+    MODO_ACESSO="aws"
+  fi
+
+  MODO_ACESSO="$(normalize_access_mode "${MODO_ACESSO}")"
+
+  case "${MODO_ACESSO}" in
+    encaminhamento)
+      ENABLE_PORT_FORWARD="true"
+      if [[ -z "${APP_BASE_URL_INFORMED}" ]]; then
+        APP_BASE_URL="http://localhost:${APP_LOCAL_PORT}"
+      fi
+      ;;
+    aws)
+      ENABLE_PORT_FORWARD="false"
+      if [[ -z "${APP_BASE_URL_INFORMED}" ]]; then
+        APP_BASE_URL="$(discover_aws_app_base_url)"
+      fi
+      if [[ -z "${AUTH_BASE_URL}" ]]; then
+        AUTH_BASE_URL="${APP_BASE_URL}"
+      fi
+      ;;
+  esac
 }
 
 prepare_iteration_context() {
@@ -340,7 +422,6 @@ dev_jwt_token() {
 }
 
 discover_k8s_auth_config() {
-  [[ "${ENABLE_PORT_FORWARD}" == "true" ]] || return 0
   command -v kubectl >/dev/null 2>&1 || return 0
 
   local issuer
@@ -484,8 +565,8 @@ test_public_and_security() {
   log "Validando endpoints publicos e seguranca."
   api GET "/q/health/live" 200
   api GET "/q/health/ready" 200
-  api GET "/q/openapi" 200
-  api GET "/q/metrics" 200
+  api GET "/q/openapi" 200 "${ADMIN_TOKEN}"
+  api GET "/q/metrics" 200 "${ADMIN_TOKEN}"
   [[ -n "${LAST_BODY}" ]] || fail "/q/metrics retornou corpo vazio."
 
   api GET "/usuarios" 401
@@ -649,7 +730,7 @@ test_order_lifecycle() {
 
 validate_metrics() {
   log "Validando metricas Prometheus geradas pelo fluxo."
-  api GET "/q/metrics" 200
+  api GET "/q/metrics" 200 "${ADMIN_TOKEN}"
   assert_metric "os_created_total"
   assert_metric "os_status_transition_total"
   assert_metric "os_status_duration_ms"
@@ -679,10 +760,11 @@ main() {
   require_cmd curl
   require_cmd jq
   validate_loop_config
+  configure_access_mode
   mkdir -p "${TMP_DIR}"
   trap cleanup EXIT
 
-  log "Configuracao: APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}, EXECUCOES=${EXECUCOES}, RUN_FOREVER=${RUN_FOREVER}."
+  log "Configuracao: MODO_ACESSO=${MODO_ACESSO}, APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}, EXECUCOES=${EXECUCOES}, RUN_FOREVER=${RUN_FOREVER}."
   start_port_forward
 
   local iteration=1
