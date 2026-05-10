@@ -206,7 +206,8 @@ class OrdemDeServicoUseCasesTest {
         var observability = mock(AppObservability.class);
         when(estadoSender.enviar(any())).thenReturn(CompletableFuture.completedFuture(null));
 
-        var os = osEmEstado(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO);
+        var estadoAnteriorDesde = Instant.parse("2026-05-10T12:00:00Z");
+        var os = osSimplesEmEstado(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO, estadoAnteriorDesde);
         doAnswer(invocation -> {
             Consumer<OrdemDeServico> atualizacao = invocation.getArgument(1);
             atualizacao.accept(os);
@@ -216,12 +217,14 @@ class OrdemDeServicoUseCasesTest {
         var transicaoService = new TransicaoDeEstadoDaOrdemDeServicoService(gateway, estadoSender, observability);
         new AprovarOrdemDeServicoUseCase(transicaoService).executar(new AprovarOrdemDeServicoUseCase.Command(os.id())).join();
 
+        var dataEstadoAnteriorCaptor = ArgumentCaptor.forClass(Instant.class);
         verify(observability).onOrderTransition(
                 eq(os.id()),
                 eq(TipoDeEstadoDaOrdemDeServico.AGUARDANDO_APROVACAO),
                 eq(TipoDeEstadoDaOrdemDeServico.EM_EXECUCAO),
-                any(),
+                dataEstadoAnteriorCaptor.capture(),
                 any());
+        assertEquals(estadoAnteriorDesde, dataEstadoAnteriorCaptor.getValue());
     }
 
     @Test
@@ -505,6 +508,11 @@ class OrdemDeServicoUseCasesTest {
     private static OrdemDeServico osEmEstado(TipoDeEstadoDaOrdemDeServico estado) {
         var estadoAtual = new EstadoDaOrdemDeServico(estado, Instant.now());
         return OrdemDeServicoFactory.reconstituiCompleto(UUID.randomUUID(), 1L, 2L, estadoAtual, new ArrayList<>(List.of(estadoAtual)), List.of(), List.of());
+    }
+
+    private static OrdemDeServico osSimplesEmEstado(TipoDeEstadoDaOrdemDeServico estado, Instant dataDoEstado) {
+        var estadoAtual = new EstadoDaOrdemDeServico(estado, dataDoEstado);
+        return OrdemDeServicoFactory.reconstituiSimples(UUID.randomUUID(), 1L, 2L, estadoAtual);
     }
 
     private static TransicaoDeEstadoDaOrdemDeServicoService transicaoService(
