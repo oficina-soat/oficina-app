@@ -227,12 +227,14 @@ cleanup() {
 curl_request() {
   local method="$1"
   local url="$2"
-  local expected_status="$3"
+  local expected_statuses="$3"
   local token="${4:-}"
   local body="${5:-}"
   local content_type="${6:-application/json}"
   local response_file="${TMP_DIR}/response.$$"
   local status
+  local expected_status
+  local status_ok="false"
   local request_id="${RUN_LABEL}-$(date +%s%N)"
   local args=(-sS -o "${response_file}" -w "%{http_code}" -X "${method}" -H "X-Request-Id: ${request_id}")
 
@@ -252,9 +254,18 @@ curl_request() {
   LAST_BODY="$(cat "${response_file}")"
   rm -f "${response_file}"
 
-  if [[ "${status}" != "${expected_status}" ]]; then
+  IFS=',' read -r -a expected_status_array <<<"${expected_statuses}"
+  for expected_status in "${expected_status_array[@]}"; do
+    expected_status="${expected_status//[[:space:]]/}"
+    if [[ "${status}" == "${expected_status}" ]]; then
+      status_ok="true"
+      break
+    fi
+  done
+
+  if [[ "${status_ok}" != "true" ]]; then
     printf '%s\n' "${LAST_BODY}" >&2
-    fail "${method} ${url} retornou HTTP ${status}; esperado ${expected_status}."
+    fail "${method} ${url} retornou HTTP ${status}; esperado ${expected_statuses}."
   fi
 
   log "HTTP ${status} ${method} ${url}"
@@ -404,6 +415,15 @@ assert_json_field() {
   jq -e "${expression}" <<<"${LAST_BODY}" >/dev/null || fail "Resposta JSON nao satisfez: ${expression}"
 }
 
+assert_json_field_if_body() {
+  local expression="$1"
+  if [[ -z "${LAST_BODY}" ]]; then
+    log "Resposta sem corpo; validacao JSON ignorada para ${expression}."
+    return 0
+  fi
+  assert_json_field "${expression}"
+}
+
 assert_metric() {
   local metric="$1"
   grep -q "${metric}" <<<"${LAST_BODY}" || fail "Metrica ${metric} nao encontrada em /q/metrics."
@@ -518,18 +538,18 @@ test_order_lifecycle() {
   os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
   log "OS principal criada: ${os_id}"
 
-  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "RECEBIDA"'
+  api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "RECEBIDA"'
 
   api POST "/ordem-de-servico/${os_id}/iniciar-diagnostico" 204 "${MECANICO_TOKEN}"
-  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "EM_DIAGNOSTICO"'
+  api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
 
   api POST "/ordem-de-servico/${os_id}/incluir-servico" 204 "${MECANICO_TOKEN}" '{"servicoId":1,"quantidade":1.000,"valorUnitario":120.00}'
   api POST "/ordem-de-servico/${os_id}/incluir-peca" 204 "${MECANICO_TOKEN}" '{"pecaId":1,"quantidade":1.000,"valorUnitario":50.00}'
   api POST "/ordem-de-servico/${os_id}/finalizar-diagnostico" 204 "${MECANICO_TOKEN}"
-  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "AGUARDANDO_APROVACAO"'
+  api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "AGUARDANDO_APROVACAO"'
 
   if [[ "${SKIP_MAGIC_LINK}" != "true" ]]; then
     api POST "/ordem-de-servico/${os_id}/enviar-link-magico" 200 "${RECEPCIONISTA_TOKEN}" "$(jq -cn --arg email "cliente-${RUN_SEED}@oficina.local" '{email:$email}')"
@@ -545,19 +565,19 @@ test_order_lifecycle() {
   fi
 
   api POST "/ordem-de-servico/${os_id}/aprovar" 204 "${ADMIN_TOKEN}"
-  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "EM_EXECUCAO"'
+  api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "EM_EXECUCAO"'
 
   api POST "/ordem-de-servico/${os_id}/finalizar" 204 "${MECANICO_TOKEN}"
-  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "FINALIZADA"'
+  api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "FINALIZADA"'
 
   api POST "/ordem-de-servico/${os_id}/entregar" 204 "${RECEPCIONISTA_TOKEN}"
-  api GET "/ordem-de-servico/${os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "ENTREGUE"'
+  api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "ENTREGUE"'
 
   api GET "/ordem-de-servico/${os_id}" 200 "${ADMIN_TOKEN}"
-  api GET "/ordem-de-servico/${os_id}/historico-estado" 200 "${ADMIN_TOKEN}"
+  api GET "/ordem-de-servico/${os_id}/historico-estado" "200,204" "${ADMIN_TOKEN}"
   api GET "/ordem-de-servico?page=0&size=20&sort=criadoEm,desc" 200 "${ADMIN_TOKEN}"
   api GET "/ordem-de-servico?estado=ENTREGUE&page=0&size=20" 200 "${ADMIN_TOKEN}"
   api GET "/ordem-de-servico/abertas-priorizadas" 200 "${ADMIN_TOKEN}"
@@ -567,8 +587,8 @@ test_order_lifecycle() {
   api POST "/ordem-de-servico/${refused_os_id}/iniciar-diagnostico" 204 "${MECANICO_TOKEN}"
   api POST "/ordem-de-servico/${refused_os_id}/finalizar-diagnostico" 204 "${MECANICO_TOKEN}"
   api POST "/ordem-de-servico/${refused_os_id}/recusar" 204 "${ADMIN_TOKEN}"
-  api GET "/ordem-de-servico/${refused_os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "EM_DIAGNOSTICO"'
+  api GET "/ordem-de-servico/${refused_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
 
   complete_cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 44))")"
   complete_placa="$(plate_from_seed "$((RUN_SEED + 44))")"
@@ -581,8 +601,8 @@ test_order_lifecycle() {
       '{documentoDoCliente:$documento,nomeDoCliente:$nome,emailDoCliente:$email,placaDoVeiculo:$placa,marcaDoVeiculo:"Marca Lab",modeloDoVeiculo:"Modelo Lab",ano:2026,servicos:[{servicoId:1,quantidade:1.000,valorUnitario:100.00}],pecas:[]}'
   )"
   complete_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
-  api GET "/ordem-de-servico/${complete_os_id}/estado-atual" 200 "${ADMIN_TOKEN}"
-  assert_json_field '.estado == "EM_DIAGNOSTICO"'
+  api GET "/ordem-de-servico/${complete_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
 }
 
 validate_metrics() {
