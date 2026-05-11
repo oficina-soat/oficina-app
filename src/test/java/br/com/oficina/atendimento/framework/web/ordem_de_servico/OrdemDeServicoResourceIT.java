@@ -448,6 +448,8 @@ class OrdemDeServicoResourceIT {
 
         executarSql("SELECT setval('public.estado_ordem_servico_seq', 1, true)");
         databaseSequenceSynchronizer.synchronizeBlocking();
+        var proximoIdAposSincronizacao = valorLong("SELECT nextval('public.estado_ordem_servico_seq')");
+        Assertions.assertTrue(proximoIdAposSincronizacao > maiorIdAtual);
 
         given().header(Helpers.gerarHeaderToken(TipoDePapel.MECANICO))
                 .when().post("/ordem-de-servico/" + ordemDeServicoIdCriada + "/iniciar-diagnostico")

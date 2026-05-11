@@ -134,6 +134,20 @@ count_file_lines() {
   fi
 }
 
+print_error_summary() {
+  local file="$1"
+  local total
+  total="$(count_file_lines "${file}")"
+  if [[ "${total}" -eq 0 ]]; then
+    return 0
+  fi
+
+  log "Resumo dos erros contabilizados:"
+  sort "${file}" | uniq -c | sort -nr | head -20 | while read -r count message; do
+    log "  ${count}x ${message}"
+  done
+}
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || fail "Comando obrigatorio nao encontrado: $1"
 }
@@ -424,6 +438,7 @@ cleanup() {
 on_interrupt() {
   TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
   log "Execucao interrompida. Erros contabilizados ate agora: ${TOTAL_ERRORS}."
+  print_error_summary "${ERRORS_FILE}"
   exit 130
 }
 
@@ -736,50 +751,80 @@ test_common_apis() {
   log "Validando APIs de pessoas, usuarios e clientes."
 
   local pessoa_cpf usuario_cpf cliente_cpf pessoa_id usuario_id cliente_id
+  local pessoa_criada usuario_criado cliente_criado
   pessoa_cpf="$(cpf_from_seed "$((RUN_SEED + 11))")"
   usuario_cpf="$(cpf_from_seed "$((RUN_SEED + 22))")"
   cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 33))")"
 
   api POST "/pessoas" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  pessoa_criada="${LAST_HTTP_OK}"
   api GET "/pessoas" 200 "${ADMIN_TOKEN}"
-  pessoa_id="$(json_id_by_field "documento" "${pessoa_cpf}")"
-  api GET "/pessoas/${pessoa_id}" 200 "${ADMIN_TOKEN}"
-  api PUT "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa Atualizada ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  if [[ "${pessoa_criada}" == "true" ]]; then
+    pessoa_id="$(json_id_by_field "documento" "${pessoa_cpf}")"
+  else
+    pessoa_id=""
+  fi
+  if [[ -n "${pessoa_id}" ]]; then
+    api GET "/pessoas/${pessoa_id}" 200 "${ADMIN_TOKEN}"
+    api PUT "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa Atualizada ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  else
+    log "Operacoes dependentes da pessoa ${pessoa_cpf} ignoradas porque o id nao foi encontrado."
+  fi
 
   api POST "/usuarios/completos" 204 "${ADMIN_TOKEN}" "$(
     jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario ${RUN_LABEL}" --arg password "secret" \
       '{documento:$documento,nome:$nome,password:$password,status:"ATIVO",papeis:["recepcionista"]}'
   )"
+  usuario_criado="${LAST_HTTP_OK}"
   api GET "/usuarios" 200 "${ADMIN_TOKEN}"
-  usuario_id="$(json_id_by_field "documento" "${usuario_cpf}")"
-  api GET "/usuarios/${usuario_id}" 200 "${ADMIN_TOKEN}"
+  if [[ "${usuario_criado}" == "true" ]]; then
+    usuario_id="$(json_id_by_field "documento" "${usuario_cpf}")"
+  else
+    usuario_id=""
+  fi
   api GET "/usuarios/completos" 200 "${ADMIN_TOKEN}"
-  api GET "/usuarios/completos/${usuario_id}" 200 "${ADMIN_TOKEN}"
-  api PUT "/usuarios/completos/${usuario_id}" 204 "${ADMIN_TOKEN}" "$(
-    jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario Atualizado ${RUN_LABEL}" \
-      '{documento:$documento,nome:$nome,password:null,status:"INATIVO",papeis:["recepcionista"]}'
-  )"
-  api DELETE "/usuarios/${usuario_id}" 204 "${ADMIN_TOKEN}"
-  api GET "/usuarios/${usuario_id}" 404 "${ADMIN_TOKEN}"
+  if [[ -n "${usuario_id}" ]]; then
+    api GET "/usuarios/${usuario_id}" 200 "${ADMIN_TOKEN}"
+    api GET "/usuarios/completos/${usuario_id}" 200 "${ADMIN_TOKEN}"
+    api PUT "/usuarios/completos/${usuario_id}" 204 "${ADMIN_TOKEN}" "$(
+      jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario Atualizado ${RUN_LABEL}" \
+        '{documento:$documento,nome:$nome,password:null,status:"INATIVO",papeis:["recepcionista"]}'
+    )"
+    api DELETE "/usuarios/${usuario_id}" 204 "${ADMIN_TOKEN}"
+    api GET "/usuarios/${usuario_id}" 404 "${ADMIN_TOKEN}"
+  else
+    log "Operacoes dependentes do usuario ${usuario_cpf} ignoradas porque o id nao foi encontrado."
+  fi
 
   api POST "/clientes/completos" 204 "${RECEPCIONISTA_TOKEN}" "$(
     jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente ${RUN_LABEL}" --arg email "cliente-${RUN_SEED}@oficina.local" \
       '{documento:$documento,nome:$nome,email:$email}'
   )"
+  cliente_criado="${LAST_HTTP_OK}"
   api GET "/clientes" 200 "${RECEPCIONISTA_TOKEN}"
-  cliente_id="$(json_id_by_field "documento" "${cliente_cpf}")"
-  api GET "/clientes/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+  if [[ "${cliente_criado}" == "true" ]]; then
+    cliente_id="$(json_id_by_field "documento" "${cliente_cpf}")"
+  else
+    cliente_id=""
+  fi
   api GET "/clientes/completos" 200 "${RECEPCIONISTA_TOKEN}"
-  api GET "/clientes/completos/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
-  api PUT "/clientes/completos/${cliente_id}" 204 "${RECEPCIONISTA_TOKEN}" "$(
-    jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente Atualizado ${RUN_LABEL}" --arg email "cliente-atualizado-${RUN_SEED}@oficina.local" \
-      '{documento:$documento,nome:$nome,email:$email}'
-  )"
-  api DELETE "/clientes/completos/${cliente_id}" 204 "${ADMIN_TOKEN}"
-  api GET "/clientes/${cliente_id}" 404 "${RECEPCIONISTA_TOKEN}"
+  if [[ -n "${cliente_id}" ]]; then
+    api GET "/clientes/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+    api GET "/clientes/completos/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+    api PUT "/clientes/completos/${cliente_id}" 204 "${RECEPCIONISTA_TOKEN}" "$(
+      jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente Atualizado ${RUN_LABEL}" --arg email "cliente-atualizado-${RUN_SEED}@oficina.local" \
+        '{documento:$documento,nome:$nome,email:$email}'
+    )"
+    api DELETE "/clientes/completos/${cliente_id}" 204 "${ADMIN_TOKEN}"
+    api GET "/clientes/${cliente_id}" 404 "${RECEPCIONISTA_TOKEN}"
+  else
+    log "Operacoes dependentes do cliente ${cliente_cpf} ignoradas porque o id nao foi encontrado."
+  fi
 
-  api DELETE "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}"
-  api GET "/pessoas/${pessoa_id}" 404 "${ADMIN_TOKEN}"
+  if [[ -n "${pessoa_id}" ]]; then
+    api DELETE "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}"
+    api GET "/pessoas/${pessoa_id}" 404 "${ADMIN_TOKEN}"
+  fi
 }
 
 test_catalog_stock_vehicle_apis() {
@@ -805,8 +850,12 @@ test_catalog_stock_vehicle_apis() {
   api DELETE "/servicos/${id_inexistente}" 404 "${ADMIN_TOKEN}"
 
   api POST "/estoque/acrescentar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":5.000,"observacao":"Validacao de metricas - entrada"}'
-  api POST "/estoque/baixar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":1.000,"observacao":"Validacao de metricas - saida"}'
-  api POST "/estoque/baixar" 409 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":999999.000,"observacao":"Validacao de metricas - conflito esperado"}'
+  if [[ "${LAST_HTTP_OK}" == "true" ]]; then
+    api POST "/estoque/baixar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":1.000,"observacao":"Validacao de metricas - saida"}'
+    api POST "/estoque/baixar" 409 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":999999.000,"observacao":"Validacao de metricas - conflito esperado"}'
+  else
+    log "Baixas de estoque ignoradas porque a entrada de estoque anterior falhou."
+  fi
 }
 
 test_order_lifecycle() {
@@ -993,6 +1042,7 @@ run_validation_once() {
   TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
   if [[ "${ITERATION_ERRORS}" -gt 0 ]]; then
     log "Execucao ${iteration} concluida com ${ITERATION_ERRORS} erro(s) contabilizado(s)."
+    print_error_summary "${ITERATION_ERRORS_FILE}"
   else
     log "Execucao ${iteration} concluida sem erros contabilizados."
   fi
@@ -1038,9 +1088,11 @@ main() {
   if [[ "${ENABLE_PORT_FORWARD}" == "true" ]]; then
     TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
     log "Validacao concluida com ${TOTAL_ERRORS} erro(s) contabilizado(s). Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+    print_error_summary "${ERRORS_FILE}"
   else
     TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
     log "Validacao concluida em ${APP_BASE_URL} com ${TOTAL_ERRORS} erro(s) contabilizado(s)."
+    print_error_summary "${ERRORS_FILE}"
   fi
 }
 
