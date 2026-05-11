@@ -18,6 +18,8 @@ public class DatabaseSequenceSynchronizer {
 
     private static final Logger LOG = Logger.getLogger(DatabaseSequenceSynchronizer.class);
     private static final Duration STARTUP_TIMEOUT = Duration.ofSeconds(30);
+    // Hibernate pode manter um bloco de IDs em memoria enquanto a sequence ainda aponta para o inicio do bloco.
+    private static final long SEQUENCE_SYNC_SAFETY_GAP = 50;
     private static final List<SequenceTarget> SEQUENCES = List.of(
             new SequenceTarget("pessoa_seq", "pessoa"),
             new SequenceTarget("papel_seq", "papel"),
@@ -59,12 +61,15 @@ public class DatabaseSequenceSynchronizer {
                     PERFORM setval(
                         'public.%s',
                         GREATEST(
-                            (SELECT COALESCE(MAX(id), 1) FROM public.%s),
+                            (SELECT COALESCE(MAX(id), 1) + %d FROM public.%s),
                             (SELECT last_value FROM public.%s)
                         ),
                         true
                     );
-                    """.formatted(sequence.sequenceName(), sequence.tableName(), sequence.sequenceName()));
+                    """.formatted(sequence.sequenceName(),
+                            SEQUENCE_SYNC_SAFETY_GAP,
+                            sequence.tableName(),
+                            sequence.sequenceName()));
         }
         statements.append("END $$");
         return statements.toString();

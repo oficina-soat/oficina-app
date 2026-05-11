@@ -50,6 +50,12 @@ ADMIN_TOKEN=""
 MECANICO_TOKEN=""
 RECEPCIONISTA_TOKEN=""
 LAST_BODY=""
+LAST_STATUS=""
+LAST_HTTP_OK="false"
+ITERATION_ERRORS=0
+TOTAL_ERRORS=0
+ERRORS_FILE="${TMP_DIR}/errors.$$"
+ITERATION_ERRORS_FILE=""
 STARTED_PF_PID=""
 
 usage() {
@@ -60,6 +66,8 @@ Uso:
 Objetivo:
   Gera trafego HTTP para validar APIs, ciclo de vida da OS, metricas Prometheus
   e dashboards que usam as metricas/logs do laboratorio.
+  Respostas inesperadas sao contabilizadas e a execucao continua ate completar
+  os ciclos configurados ou ate Ctrl+C.
 
 Variaveis principais:
   MODO_ACESSO              encaminhamento|aws. Default: encaminhamento
@@ -104,6 +112,40 @@ log() {
 fail() {
   printf '[validar][erro] %s\n' "$*" >&2
   exit 1
+}
+
+record_validation_error() {
+  ITERATION_ERRORS=$((ITERATION_ERRORS + 1))
+  TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
+  printf '[validar][erro-contabilizado] %s\n' "$*" >&2
+  mkdir -p "${TMP_DIR}"
+  printf '%s\n' "$*" >> "${ERRORS_FILE}"
+  if [[ -n "${ITERATION_ERRORS_FILE}" ]]; then
+    printf '%s\n' "$*" >> "${ITERATION_ERRORS_FILE}"
+  fi
+}
+
+count_file_lines() {
+  local file="$1"
+  if [[ -f "${file}" ]]; then
+    wc -l < "${file}" | tr -d '[:space:]'
+  else
+    printf '0'
+  fi
+}
+
+print_error_summary() {
+  local file="$1"
+  local total
+  total="$(count_file_lines "${file}")"
+  if [[ "${total}" -eq 0 ]]; then
+    return 0
+  fi
+
+  log "Resumo dos erros contabilizados:"
+  sort "${file}" | uniq -c | sort -nr | head -20 | while read -r count message; do
+    log "  ${count}x ${message}"
+  done
 }
 
 require_cmd() {
@@ -393,6 +435,13 @@ cleanup() {
   fi
 }
 
+on_interrupt() {
+  TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
+  log "Execucao interrompida. Erros contabilizados ate agora: ${TOTAL_ERRORS}."
+  print_error_summary "${ERRORS_FILE}"
+  exit 130
+}
+
 curl_request() {
   local method="$1"
   local url="$2"
@@ -408,6 +457,9 @@ curl_request() {
   local attempt=1
   local max_attempts=$((CURL_RETRIES + 1))
   local args=(-sS -o "${response_file}" -w "%{http_code}" --connect-timeout "${CURL_CONNECT_TIMEOUT}" --max-time "${CURL_MAX_TIME}" -X "${method}" -H "X-Request-Id: ${request_id}")
+  LAST_BODY=""
+  LAST_STATUS=""
+  LAST_HTTP_OK="false"
 
   if [[ -n "${token}" ]]; then
     args+=(-H "Authorization: Bearer ${token}")
@@ -423,8 +475,11 @@ curl_request() {
     fi
 
     if (( attempt >= max_attempts )); then
-      cat "${response_file}" >&2 2>/dev/null || true
-      fail "Falha de rede em ${method} ${url}"
+      LAST_BODY="$(cat "${response_file}" 2>/dev/null || true)"
+      rm -f "${response_file}"
+      LAST_STATUS="NETWORK"
+      record_validation_error "Falha de rede em ${method} ${url} apos ${CURL_RETRIES} nova(s) tentativa(s)."
+      return 0
     fi
 
     log "Falha de rede em ${method} ${url}; nova tentativa ${attempt}/${CURL_RETRIES} em ${CURL_RETRY_DELAY}s."
@@ -432,8 +487,9 @@ curl_request() {
     sleep "${CURL_RETRY_DELAY}"
   done
 
-  LAST_BODY="$(cat "${response_file}")"
+  LAST_BODY="$(cat "${response_file}" 2>/dev/null || true)"
   rm -f "${response_file}"
+  LAST_STATUS="${status}"
 
   IFS=',' read -r -a expected_status_array <<<"${expected_statuses}"
   for expected_status in "${expected_status_array[@]}"; do
@@ -446,9 +502,11 @@ curl_request() {
 
   if [[ "${status_ok}" != "true" ]]; then
     printf '%s\n' "${LAST_BODY}" >&2
-    fail "${method} ${url} retornou HTTP ${status}; esperado ${expected_statuses}."
+    record_validation_error "${method} ${url} retornou HTTP ${status}; esperado ${expected_statuses}."
+    return 0
   fi
 
+  LAST_HTTP_OK="true"
   log "HTTP ${status} ${method} ${url}"
 }
 
@@ -464,10 +522,21 @@ api() {
 
 auth_api_token() {
   local cpf="$1"
+  local target_var="$2"
   local body
+  local token
   body="$(jq -cn --arg cpf "${cpf}" --arg password "${AUTH_PASSWORD}" '{cpf:$cpf,password:$password}')"
   curl_request "POST" "${AUTH_BASE_URL%/}/auth/token" "200" "" "${body}"
-  jq -er '.access_token' <<<"${LAST_BODY}"
+  if [[ "${LAST_HTTP_OK}" != "true" ]]; then
+    printf -v "${target_var}" ''
+    return 0
+  fi
+
+  token="$(jq -er '.access_token' <<<"${LAST_BODY}" 2>/dev/null || true)"
+  if [[ -z "${token}" ]]; then
+    record_validation_error "POST ${AUTH_BASE_URL%/}/auth/token nao retornou access_token para cpf ${cpf}."
+  fi
+  printf -v "${target_var}" '%s' "${token}"
 }
 
 dev_jwt_token() {
@@ -535,9 +604,9 @@ authenticate() {
   if [[ "${AUTH_MODE}" == "auth-api" ]]; then
     [[ -n "${AUTH_BASE_URL}" ]] || fail "AUTH_MODE=auth-api exige OFICINA_AUTH_BASE_URL ou AUTH_BASE_URL."
     log "Autenticando via ${AUTH_BASE_URL%/}/auth/token."
-    ADMIN_TOKEN="$(auth_api_token "${AUTH_ADMIN_CPF}")"
-    MECANICO_TOKEN="$(auth_api_token "${AUTH_MECANICO_CPF}")"
-    RECEPCIONISTA_TOKEN="$(auth_api_token "${AUTH_RECEPCIONISTA_CPF}")"
+    auth_api_token "${AUTH_ADMIN_CPF}" ADMIN_TOKEN
+    auth_api_token "${AUTH_MECANICO_CPF}" MECANICO_TOKEN
+    auth_api_token "${AUTH_RECEPCIONISTA_CPF}" RECEPCIONISTA_TOKEN
   else
     log "Gerando JWTs locais de desenvolvimento."
     ADMIN_TOKEN="$(dev_jwt_token "${AUTH_ADMIN_CPF}" "administrativo,mecanico,recepcionista")"
@@ -588,16 +657,56 @@ plate_from_seed() {
 json_id_by_field() {
   local field="$1"
   local value="$2"
-  jq -er --arg field "${field}" --arg value "${value}" '.[] | select(.[$field] == $value) | .id' <<<"${LAST_BODY}" | head -n 1
+  local id
+
+  if [[ "${LAST_HTTP_OK}" != "true" ]]; then
+    log "Busca de id por ${field}=${value} ignorada porque a ultima resposta HTTP nao foi a esperada."
+    printf ''
+    return 0
+  fi
+
+  id="$(jq -er --arg field "${field}" --arg value "${value}" '.[] | select(.[$field] == $value) | .id' <<<"${LAST_BODY}" 2>/dev/null | head -n 1 || true)"
+  if [[ -z "${id}" ]]; then
+    record_validation_error "Resposta JSON nao contem id para ${field}=${value}."
+  fi
+  printf '%s' "${id}"
+}
+
+json_field() {
+  local expression="$1"
+  local description="$2"
+  local value
+
+  if [[ "${LAST_HTTP_OK}" != "true" ]]; then
+    log "Leitura de ${description} ignorada porque a ultima resposta HTTP nao foi a esperada."
+    printf ''
+    return 0
+  fi
+
+  value="$(jq -er "${expression}" <<<"${LAST_BODY}" 2>/dev/null || true)"
+  if [[ -z "${value}" ]]; then
+    record_validation_error "Resposta JSON nao contem ${description}."
+  fi
+  printf '%s' "${value}"
 }
 
 assert_json_field() {
   local expression="$1"
-  jq -e "${expression}" <<<"${LAST_BODY}" >/dev/null || fail "Resposta JSON nao satisfez: ${expression}"
+  if [[ "${LAST_HTTP_OK}" != "true" ]]; then
+    log "Validacao JSON ignorada para ${expression} porque a ultima resposta HTTP nao foi a esperada."
+    return 0
+  fi
+
+  jq -e "${expression}" <<<"${LAST_BODY}" >/dev/null 2>&1 || record_validation_error "Resposta JSON nao satisfez: ${expression}"
 }
 
 assert_json_field_if_body() {
   local expression="$1"
+  if [[ "${LAST_HTTP_OK}" != "true" ]]; then
+    log "Validacao JSON ignorada para ${expression} porque a ultima resposta HTTP nao foi a esperada."
+    return 0
+  fi
+
   if [[ -z "${LAST_BODY}" ]]; then
     log "Resposta sem corpo; validacao JSON ignorada para ${expression}."
     return 0
@@ -607,7 +716,12 @@ assert_json_field_if_body() {
 
 assert_metric() {
   local metric="$1"
-  grep -q "${metric}" <<<"${LAST_BODY}" || fail "Metrica ${metric} nao encontrada em /q/metrics."
+  if [[ "${LAST_HTTP_OK}" != "true" ]]; then
+    log "Validacao da metrica ${metric} ignorada porque a ultima resposta HTTP nao foi a esperada."
+    return 0
+  fi
+
+  grep -q "${metric}" <<<"${LAST_BODY}" || record_validation_error "Metrica ${metric} nao encontrada em /q/metrics."
 }
 
 path_from_url() {
@@ -625,7 +739,9 @@ test_public_and_security() {
   api GET "/q/health/ready" 200
   api GET "/q/openapi" 200 "${ADMIN_TOKEN}"
   api GET "/q/metrics" 200 "${ADMIN_TOKEN}"
-  [[ -n "${LAST_BODY}" ]] || fail "/q/metrics retornou corpo vazio."
+  if [[ "${LAST_HTTP_OK}" == "true" && -z "${LAST_BODY}" ]]; then
+    record_validation_error "/q/metrics retornou corpo vazio."
+  fi
 
   api GET "/usuarios" 401
   api GET "/usuarios" 403 "${RECEPCIONISTA_TOKEN}"
@@ -635,50 +751,80 @@ test_common_apis() {
   log "Validando APIs de pessoas, usuarios e clientes."
 
   local pessoa_cpf usuario_cpf cliente_cpf pessoa_id usuario_id cliente_id
+  local pessoa_criada usuario_criado cliente_criado
   pessoa_cpf="$(cpf_from_seed "$((RUN_SEED + 11))")"
   usuario_cpf="$(cpf_from_seed "$((RUN_SEED + 22))")"
   cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 33))")"
 
   api POST "/pessoas" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  pessoa_criada="${LAST_HTTP_OK}"
   api GET "/pessoas" 200 "${ADMIN_TOKEN}"
-  pessoa_id="$(json_id_by_field "documento" "${pessoa_cpf}")"
-  api GET "/pessoas/${pessoa_id}" 200 "${ADMIN_TOKEN}"
-  api PUT "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa Atualizada ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  if [[ "${pessoa_criada}" == "true" ]]; then
+    pessoa_id="$(json_id_by_field "documento" "${pessoa_cpf}")"
+  else
+    pessoa_id=""
+  fi
+  if [[ -n "${pessoa_id}" ]]; then
+    api GET "/pessoas/${pessoa_id}" 200 "${ADMIN_TOKEN}"
+    api PUT "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg documento "${pessoa_cpf}" --arg nome "Pessoa Atualizada ${RUN_LABEL}" '{documento:$documento,nome:$nome}')"
+  else
+    log "Operacoes dependentes da pessoa ${pessoa_cpf} ignoradas porque o id nao foi encontrado."
+  fi
 
   api POST "/usuarios/completos" 204 "${ADMIN_TOKEN}" "$(
     jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario ${RUN_LABEL}" --arg password "secret" \
       '{documento:$documento,nome:$nome,password:$password,status:"ATIVO",papeis:["recepcionista"]}'
   )"
+  usuario_criado="${LAST_HTTP_OK}"
   api GET "/usuarios" 200 "${ADMIN_TOKEN}"
-  usuario_id="$(json_id_by_field "documento" "${usuario_cpf}")"
-  api GET "/usuarios/${usuario_id}" 200 "${ADMIN_TOKEN}"
+  if [[ "${usuario_criado}" == "true" ]]; then
+    usuario_id="$(json_id_by_field "documento" "${usuario_cpf}")"
+  else
+    usuario_id=""
+  fi
   api GET "/usuarios/completos" 200 "${ADMIN_TOKEN}"
-  api GET "/usuarios/completos/${usuario_id}" 200 "${ADMIN_TOKEN}"
-  api PUT "/usuarios/completos/${usuario_id}" 204 "${ADMIN_TOKEN}" "$(
-    jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario Atualizado ${RUN_LABEL}" \
-      '{documento:$documento,nome:$nome,password:null,status:"INATIVO",papeis:["recepcionista"]}'
-  )"
-  api DELETE "/usuarios/${usuario_id}" 204 "${ADMIN_TOKEN}"
-  api GET "/usuarios/${usuario_id}" 404 "${ADMIN_TOKEN}"
+  if [[ -n "${usuario_id}" ]]; then
+    api GET "/usuarios/${usuario_id}" 200 "${ADMIN_TOKEN}"
+    api GET "/usuarios/completos/${usuario_id}" 200 "${ADMIN_TOKEN}"
+    api PUT "/usuarios/completos/${usuario_id}" 204 "${ADMIN_TOKEN}" "$(
+      jq -cn --arg documento "${usuario_cpf}" --arg nome "Usuario Atualizado ${RUN_LABEL}" \
+        '{documento:$documento,nome:$nome,password:null,status:"INATIVO",papeis:["recepcionista"]}'
+    )"
+    api DELETE "/usuarios/${usuario_id}" 204 "${ADMIN_TOKEN}"
+    api GET "/usuarios/${usuario_id}" 404 "${ADMIN_TOKEN}"
+  else
+    log "Operacoes dependentes do usuario ${usuario_cpf} ignoradas porque o id nao foi encontrado."
+  fi
 
   api POST "/clientes/completos" 204 "${RECEPCIONISTA_TOKEN}" "$(
     jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente ${RUN_LABEL}" --arg email "cliente-${RUN_SEED}@oficina.local" \
       '{documento:$documento,nome:$nome,email:$email}'
   )"
+  cliente_criado="${LAST_HTTP_OK}"
   api GET "/clientes" 200 "${RECEPCIONISTA_TOKEN}"
-  cliente_id="$(json_id_by_field "documento" "${cliente_cpf}")"
-  api GET "/clientes/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+  if [[ "${cliente_criado}" == "true" ]]; then
+    cliente_id="$(json_id_by_field "documento" "${cliente_cpf}")"
+  else
+    cliente_id=""
+  fi
   api GET "/clientes/completos" 200 "${RECEPCIONISTA_TOKEN}"
-  api GET "/clientes/completos/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
-  api PUT "/clientes/completos/${cliente_id}" 204 "${RECEPCIONISTA_TOKEN}" "$(
-    jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente Atualizado ${RUN_LABEL}" --arg email "cliente-atualizado-${RUN_SEED}@oficina.local" \
-      '{documento:$documento,nome:$nome,email:$email}'
-  )"
-  api DELETE "/clientes/completos/${cliente_id}" 204 "${ADMIN_TOKEN}"
-  api GET "/clientes/${cliente_id}" 404 "${RECEPCIONISTA_TOKEN}"
+  if [[ -n "${cliente_id}" ]]; then
+    api GET "/clientes/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+    api GET "/clientes/completos/${cliente_id}" 200 "${RECEPCIONISTA_TOKEN}"
+    api PUT "/clientes/completos/${cliente_id}" 204 "${RECEPCIONISTA_TOKEN}" "$(
+      jq -cn --arg documento "${cliente_cpf}" --arg nome "Cliente Atualizado ${RUN_LABEL}" --arg email "cliente-atualizado-${RUN_SEED}@oficina.local" \
+        '{documento:$documento,nome:$nome,email:$email}'
+    )"
+    api DELETE "/clientes/completos/${cliente_id}" 204 "${ADMIN_TOKEN}"
+    api GET "/clientes/${cliente_id}" 404 "${RECEPCIONISTA_TOKEN}"
+  else
+    log "Operacoes dependentes do cliente ${cliente_cpf} ignoradas porque o id nao foi encontrado."
+  fi
 
-  api DELETE "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}"
-  api GET "/pessoas/${pessoa_id}" 404 "${ADMIN_TOKEN}"
+  if [[ -n "${pessoa_id}" ]]; then
+    api DELETE "/pessoas/${pessoa_id}" 204 "${ADMIN_TOKEN}"
+    api GET "/pessoas/${pessoa_id}" 404 "${ADMIN_TOKEN}"
+  fi
 }
 
 test_catalog_stock_vehicle_apis() {
@@ -704,8 +850,12 @@ test_catalog_stock_vehicle_apis() {
   api DELETE "/servicos/${id_inexistente}" 404 "${ADMIN_TOKEN}"
 
   api POST "/estoque/acrescentar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":5.000,"observacao":"Validacao de metricas - entrada"}'
-  api POST "/estoque/baixar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":1.000,"observacao":"Validacao de metricas - saida"}'
-  api POST "/estoque/baixar" 409 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":999999.000,"observacao":"Validacao de metricas - conflito esperado"}'
+  if [[ "${LAST_HTTP_OK}" == "true" ]]; then
+    api POST "/estoque/baixar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":1.000,"observacao":"Validacao de metricas - saida"}'
+    api POST "/estoque/baixar" 409 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":999999.000,"observacao":"Validacao de metricas - conflito esperado"}'
+  else
+    log "Baixas de estoque ignoradas porque a entrada de estoque anterior falhou."
+  fi
 }
 
 test_order_lifecycle() {
@@ -717,7 +867,11 @@ test_order_lifecycle() {
   api POST "/estoque/acrescentar" 204 "${ADMIN_TOKEN}" '{"id":1,"ordemDeServicoId":null,"quantidade":5.000,"observacao":"Saldo para ciclo de vida de OS"}'
 
   api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
-  os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  os_id="$(json_field '.ordemDeServicoId' 'ordemDeServicoId da OS principal')"
+  if [[ -z "${os_id}" ]]; then
+    log "Ciclo principal de OS ignorado porque a OS principal nao foi criada."
+    return 0
+  fi
   log "OS principal criada: ${os_id}"
 
   api GET "/ordem-de-servico/${os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
@@ -736,12 +890,12 @@ test_order_lifecycle() {
   if [[ "${SKIP_MAGIC_LINK}" != "true" ]]; then
     api POST "/ordem-de-servico/${os_id}/enviar-link-magico" 200 "${RECEPCIONISTA_TOKEN}" "$(jq -cn --arg email "cliente-${RUN_SEED}@oficina.local" '{email:$email}')"
     local acompanhar aprovar recusar
-    acompanhar="$(path_from_url "$(jq -er '.acompanhar' <<<"${LAST_BODY}")")"
-    aprovar="$(path_from_url "$(jq -er '.aprovar' <<<"${LAST_BODY}")")"
-    recusar="$(path_from_url "$(jq -er '.recusar' <<<"${LAST_BODY}")")"
-    api GET "${acompanhar}" 200
-    api GET "${aprovar}" 200
-    api GET "${recusar}" 200
+    acompanhar="$(json_field '.acompanhar' 'link de acompanhamento')"
+    aprovar="$(json_field '.aprovar' 'link de aprovacao')"
+    recusar="$(json_field '.recusar' 'link de recusa')"
+    [[ -n "${acompanhar}" ]] && api GET "$(path_from_url "${acompanhar}")" 200
+    [[ -n "${aprovar}" ]] && api GET "$(path_from_url "${aprovar}")" 200
+    [[ -n "${recusar}" ]] && api GET "$(path_from_url "${recusar}")" 200
   else
     log "Magic links ignorados por SKIP_MAGIC_LINK=true."
   fi
@@ -765,12 +919,16 @@ test_order_lifecycle() {
   api GET "/ordem-de-servico/abertas-priorizadas" 200 "${ADMIN_TOKEN}"
 
   api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
-  refused_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
-  api POST "/ordem-de-servico/${refused_os_id}/iniciar-diagnostico" 204 "${MECANICO_TOKEN}"
-  api POST "/ordem-de-servico/${refused_os_id}/finalizar-diagnostico" 204 "${MECANICO_TOKEN}"
-  api POST "/ordem-de-servico/${refused_os_id}/recusar" 204 "${ADMIN_TOKEN}"
-  api GET "/ordem-de-servico/${refused_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
-  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+  refused_os_id="$(json_field '.ordemDeServicoId' 'ordemDeServicoId da OS recusada')"
+  if [[ -n "${refused_os_id}" ]]; then
+    api POST "/ordem-de-servico/${refused_os_id}/iniciar-diagnostico" 204 "${MECANICO_TOKEN}"
+    api POST "/ordem-de-servico/${refused_os_id}/finalizar-diagnostico" 204 "${MECANICO_TOKEN}"
+    api POST "/ordem-de-servico/${refused_os_id}/recusar" 204 "${ADMIN_TOKEN}"
+    api GET "/ordem-de-servico/${refused_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+    assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+  else
+    log "Fluxo de recusa de OS ignorado porque a OS nao foi criada."
+  fi
 
   complete_cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 44))")"
   complete_placa="$(plate_from_seed "$((RUN_SEED + 44))")"
@@ -782,9 +940,13 @@ test_order_lifecycle() {
       --arg placa "${complete_placa}" \
       '{documentoDoCliente:$documento,nomeDoCliente:$nome,emailDoCliente:$email,placaDoVeiculo:$placa,marcaDoVeiculo:"Marca Lab",modeloDoVeiculo:"Modelo Lab",ano:2026,servicos:[{servicoId:1,quantidade:1.000,valorUnitario:100.00}],pecas:[]}'
   )"
-  complete_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
-  api GET "/ordem-de-servico/${complete_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
-  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+  complete_os_id="$(json_field '.ordemDeServicoId' 'ordemDeServicoId da OS completa')"
+  if [[ -n "${complete_os_id}" ]]; then
+    api GET "/ordem-de-servico/${complete_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+    assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+  else
+    log "Consulta da OS completa ignorada porque a OS nao foi criada."
+  fi
 }
 
 test_integration_failures() {
@@ -793,7 +955,11 @@ test_integration_failures() {
   local integration_failure_os_id invalid_email
 
   api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
-  integration_failure_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  integration_failure_os_id="$(json_field '.ordemDeServicoId' 'ordemDeServicoId para falha de integracao')"
+  if [[ -z "${integration_failure_os_id}" ]]; then
+    log "Falha de integracao ignorada porque a OS nao foi criada."
+    return 0
+  fi
   invalid_email="$(printf 'destino-invalido\nx-oficina-validacao-%s' "${RUN_SEED}")"
 
   api POST "/ordem-de-servico/${integration_failure_os_id}/enviar-link-magico" "400,500,502,503" "${RECEPCIONISTA_TOKEN}" "$(
@@ -807,10 +973,14 @@ test_order_processing_failures() {
   local invalid_transition_os_id stock_failure_os_id stock_failure_cliente_cpf stock_failure_placa
 
   api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
-  invalid_transition_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
-  api POST "/ordem-de-servico/${invalid_transition_os_id}/finalizar" 409 "${MECANICO_TOKEN}"
-  api GET "/ordem-de-servico/${invalid_transition_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
-  assert_json_field_if_body '.estado == "RECEBIDA"'
+  invalid_transition_os_id="$(json_field '.ordemDeServicoId' 'ordemDeServicoId para transicao invalida')"
+  if [[ -n "${invalid_transition_os_id}" ]]; then
+    api POST "/ordem-de-servico/${invalid_transition_os_id}/finalizar" 409 "${MECANICO_TOKEN}"
+    api GET "/ordem-de-servico/${invalid_transition_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+    assert_json_field_if_body '.estado == "RECEBIDA"'
+  else
+    log "Falha de transicao invalida ignorada porque a OS nao foi criada."
+  fi
 
   stock_failure_cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 55))")"
   stock_failure_placa="$(plate_from_seed "$((RUN_SEED + 55))")"
@@ -822,10 +992,14 @@ test_order_processing_failures() {
       --arg placa "${stock_failure_placa}" \
       '{documentoDoCliente:$documento,nomeDoCliente:$nome,emailDoCliente:$email,placaDoVeiculo:$placa,marcaDoVeiculo:"Marca Lab",modeloDoVeiculo:"Modelo Lab",ano:2026,servicos:[{servicoId:1,quantidade:1.000,valorUnitario:100.00}],pecas:[{pecaId:1,quantidade:999999.000,valorUnitario:50.00}]}'
   )"
-  stock_failure_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
-  api POST "/ordem-de-servico/${stock_failure_os_id}/finalizar-diagnostico" 409 "${MECANICO_TOKEN}"
-  api GET "/ordem-de-servico/${stock_failure_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
-  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+  stock_failure_os_id="$(json_field '.ordemDeServicoId' 'ordemDeServicoId para falha de estoque')"
+  if [[ -n "${stock_failure_os_id}" ]]; then
+    api POST "/ordem-de-servico/${stock_failure_os_id}/finalizar-diagnostico" 409 "${MECANICO_TOKEN}"
+    api GET "/ordem-de-servico/${stock_failure_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+    assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+  else
+    log "Falha de estoque na OS ignorada porque a OS completa nao foi criada."
+  fi
 }
 
 validate_metrics() {
@@ -842,7 +1016,10 @@ validate_metrics() {
 
 run_validation_once() {
   local iteration="$1"
+  ITERATION_ERRORS=0
   prepare_iteration_context "${iteration}"
+  ITERATION_ERRORS_FILE="${TMP_DIR}/errors-${RUN_LABEL}.log"
+  : > "${ITERATION_ERRORS_FILE}"
 
   log "Iniciando execucao ${iteration} com RUN_LABEL=${RUN_LABEL}."
   authenticate
@@ -861,7 +1038,14 @@ run_validation_once() {
     log "Falhas de processamento da OS ignoradas por FORCAR_FALHAS_OS=false."
   fi
   validate_metrics
-  log "Execucao ${iteration} concluida."
+  ITERATION_ERRORS="$(count_file_lines "${ITERATION_ERRORS_FILE}")"
+  TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
+  if [[ "${ITERATION_ERRORS}" -gt 0 ]]; then
+    log "Execucao ${iteration} concluida com ${ITERATION_ERRORS} erro(s) contabilizado(s)."
+    print_error_summary "${ITERATION_ERRORS_FILE}"
+  else
+    log "Execucao ${iteration} concluida sem erros contabilizados."
+  fi
 }
 
 main() {
@@ -875,7 +1059,9 @@ main() {
   validate_loop_config
   configure_access_mode
   mkdir -p "${TMP_DIR}"
+  : > "${ERRORS_FILE}"
   trap cleanup EXIT
+  trap on_interrupt INT TERM
 
   log "Configuracao: MODO_ACESSO=${MODO_ACESSO}, APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}, EXECUCOES=${EXECUCOES}, RUN_FOREVER=${RUN_FOREVER}, FORCAR_FALHAS_INTEGRACAO=${FORCAR_FALHAS_INTEGRACAO}, FORCAR_FALHAS_OS=${FORCAR_FALHAS_OS}."
   start_port_forward
@@ -900,9 +1086,13 @@ main() {
   done
 
   if [[ "${ENABLE_PORT_FORWARD}" == "true" ]]; then
-    log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+    TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
+    log "Validacao concluida com ${TOTAL_ERRORS} erro(s) contabilizado(s). Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+    print_error_summary "${ERRORS_FILE}"
   else
-    log "Validacao concluida em ${APP_BASE_URL}."
+    TOTAL_ERRORS="$(count_file_lines "${ERRORS_FILE}")"
+    log "Validacao concluida em ${APP_BASE_URL} com ${TOTAL_ERRORS} erro(s) contabilizado(s)."
+    print_error_summary "${ERRORS_FILE}"
   fi
 }
 
