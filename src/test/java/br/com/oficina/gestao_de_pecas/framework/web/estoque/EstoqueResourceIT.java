@@ -10,6 +10,7 @@ import io.quarkus.test.common.http.TestHTTPResource;
 import io.quarkus.test.hibernate.reactive.panache.TransactionalUniAsserter;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.vertx.RunOnVertxContext;
+import io.restassured.http.ContentType;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.mutiny.core.Vertx;
@@ -20,6 +21,9 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.net.URI;
+
+import static io.restassured.RestAssured.given;
+import static org.hamcrest.Matchers.equalTo;
 
 @QuarkusTest
 class EstoqueResourceIT {
@@ -50,6 +54,22 @@ class EstoqueResourceIT {
                             Assertions.assertNotNull(estoqueSaldoEntity);
                             Assertions.assertEquals(new BigDecimal("5.000"), estoqueSaldoEntity.quantidade);
                         }));
+    }
+
+    @Test
+    void deveRetornarNotFoundAoAcrescentarEstoqueDePecaInexistente() {
+        var pecaId = 999_999L;
+
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.ADMINISTRATIVO))
+                .contentType(ContentType.JSON)
+                .body(new EstoqueController.EstoqueRequest(
+                        pecaId,
+                        null,
+                        new BigDecimal("5.000"),
+                        "Carga inicial"))
+        .when().post("/estoque/acrescentar")
+        .then().statusCode(404)
+                .body("message", equalTo("Peça não encontrada: " + pecaId));
     }
 
     private Uni<Void> executarPostSemBloquear(String path, Object body, TipoDePapel papel) {

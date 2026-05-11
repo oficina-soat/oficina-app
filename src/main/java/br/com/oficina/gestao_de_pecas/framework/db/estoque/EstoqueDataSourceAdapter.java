@@ -2,7 +2,9 @@ package br.com.oficina.gestao_de_pecas.framework.db.estoque;
 
 import br.com.oficina.gestao_de_pecas.core.entities.estoque.Estoque;
 import br.com.oficina.gestao_de_pecas.core.entities.estoque.EstoqueMovimento;
+import br.com.oficina.gestao_de_pecas.core.exceptions.PecaNaoEncontradaException;
 import br.com.oficina.gestao_de_pecas.core.interfaces.EstoqueGateway;
+import br.com.oficina.gestao_de_pecas.framework.db.catalogo.entities.PecaEntity;
 import br.com.oficina.gestao_de_pecas.framework.db.estoque.entities.EstoqueMovimentoEntity;
 import br.com.oficina.gestao_de_pecas.framework.db.estoque.entities.EstoqueSaldoEntity;
 import io.smallrye.mutiny.Uni;
@@ -46,7 +48,9 @@ public class EstoqueDataSourceAdapter implements EstoqueGateway {
     }
 
     private Uni<EstoqueSaldoEntity> buscaOuCriaSaldo(long pecaId) {
-        return EstoqueSaldoEntity.buscaParaAtualizar(pecaId)
+        return PecaEntity.buscaPorId(pecaId)
+                .onItem().ifNull().failWith(() -> new PecaNaoEncontradaException(pecaId))
+                .chain(_ -> EstoqueSaldoEntity.buscaParaAtualizar(pecaId))
                 .chain(estoqueSaldoEntity -> {
                     if (estoqueSaldoEntity != null) {
                         return Uni.createFrom().item(estoqueSaldoEntity);
