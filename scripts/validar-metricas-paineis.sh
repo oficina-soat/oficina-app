@@ -685,22 +685,23 @@ test_catalog_stock_vehicle_apis() {
   log "Validando APIs de veiculos, catalogo e estoque."
 
   local placa
+  local id_inexistente=9223372036854775807
   placa="$(plate_from_seed "${RUN_SEED}")"
 
   api POST "/veiculos" 204 "${RECEPCIONISTA_TOKEN}" "$(jq -cn --arg placa "${placa}" '{placa:$placa,marca:"Marca Lab",modelo:"Modelo Lab",ano:2026}')"
   api GET "/veiculos/1" 200 "${RECEPCIONISTA_TOKEN}"
   api PUT "/veiculos/1" 204 "${RECEPCIONISTA_TOKEN}" '{"placa":"ABC1234","marca":"11111111111","modelo":"11111111111","ano":11111111}'
-  api DELETE "/veiculos/999999" 204 "${ADMIN_TOKEN}"
+  api DELETE "/veiculos/${id_inexistente}" 204 "${ADMIN_TOKEN}"
 
   api POST "/pecas" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg nome "Peca ${RUN_LABEL}" '{nome:$nome}')"
   api GET "/pecas/1" 200 "${ADMIN_TOKEN}"
   api PUT "/pecas/3" 204 "${ADMIN_TOKEN}" '{"nome":"Tapete"}'
-  api DELETE "/pecas/999999" 404 "${ADMIN_TOKEN}"
+  api DELETE "/pecas/${id_inexistente}" 404 "${ADMIN_TOKEN}"
 
   api POST "/servicos" 204 "${ADMIN_TOKEN}" "$(jq -cn --arg nome "Servico ${RUN_LABEL}" '{nome:$nome}')"
   api GET "/servicos/1" 200 "${ADMIN_TOKEN}"
   api PUT "/servicos/1" 204 "${ADMIN_TOKEN}" '{"nome":"Troca de oleo"}'
-  api DELETE "/servicos/999999" 404 "${ADMIN_TOKEN}"
+  api DELETE "/servicos/${id_inexistente}" 404 "${ADMIN_TOKEN}"
 
   api POST "/estoque/acrescentar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":5.000,"observacao":"Validacao de metricas - entrada"}'
   api POST "/estoque/baixar" 204 "${ADMIN_TOKEN}" '{"id":3,"ordemDeServicoId":null,"quantidade":1.000,"observacao":"Validacao de metricas - saida"}'
