@@ -3,6 +3,7 @@ package br.com.oficina.atendimento.framework.web.ordem_de_servico;
 import br.com.oficina.atendimento.core.entities.ordem_de_servico.TipoDeEstadoDaOrdemDeServico;
 import br.com.oficina.atendimento.framework.db.ordem_de_servico.entities.OrdemDeServicoEntity;
 import br.com.oficina.atendimento.interfaces.controllers.OrdemDeServicoCommandController;
+import br.com.oficina.common.framework.db.DatabaseSequenceSynchronizer;
 import br.com.oficina.common.tests.Helpers;
 import br.com.oficina.common.web.TipoDePapel;
 import br.com.oficina.gestao_de_pecas.core.entities.estoque.MovimentoTipo;
@@ -21,7 +22,7 @@ import io.smallrye.mutiny.Uni;
 import io.vertx.core.http.HttpMethod;
 import io.vertx.mutiny.core.Vertx;
 import io.vertx.mutiny.core.buffer.Buffer;
-import io.vertx.mutiny.core.http.HttpClientResponse;
+import io.vertx.mutiny.pgclient.PgPool;
 import jakarta.inject.Inject;
 import org.hamcrest.Matchers;
 import org.hibernate.reactive.mutiny.Mutiny;
@@ -41,8 +42,11 @@ import static org.hamcrest.Matchers.hasItem;
 import static org.hamcrest.Matchers.not;
 
 @QuarkusTest
+@SuppressWarnings("deprecation")
 class OrdemDeServicoResourceIT {
     @Inject Vertx vertx;
+    @Inject PgPool pgPool;
+    @Inject DatabaseSequenceSynchronizer databaseSequenceSynchronizer;
     @TestHTTPResource URI baseUri;
 
     @AfterEach
@@ -426,6 +430,31 @@ class OrdemDeServicoResourceIT {
     }
 
     @Test
+    void deveSincronizarSequenceDeHistoricoAntesDeRegistrarNovaTransicaoTest() {
+        var ordemDeServicoIdCriada = given().header(Helpers.gerarHeaderToken(TipoDePapel.RECEPCIONISTA))
+                .contentType(ContentType.JSON)
+                .body(new OrdemDeServicoCommandController.CriarOrdemDeServicoRequest(
+                        "50132372037",
+                        "abc1234"))
+                .when().post("/ordem-de-servico")
+                .then().statusCode(200)
+                .extract().jsonPath().getString("ordemDeServicoId");
+
+        var maiorIdAtual = valorLong("SELECT COALESCE(MAX(id), 0)::bigint FROM public.estado_ordem_servico");
+        executarSql("SELECT setval('public.estado_ordem_servico_seq', 1, true)");
+
+        var proximoIdSemSincronizacao = valorLong("SELECT nextval('public.estado_ordem_servico_seq')");
+        Assertions.assertTrue(proximoIdSemSincronizacao <= maiorIdAtual);
+
+        executarSql("SELECT setval('public.estado_ordem_servico_seq', 1, true)");
+        databaseSequenceSynchronizer.synchronizeBlocking();
+
+        given().header(Helpers.gerarHeaderToken(TipoDePapel.MECANICO))
+                .when().post("/ordem-de-servico/" + ordemDeServicoIdCriada + "/iniciar-diagnostico")
+                .then().statusCode(204);
+    }
+
+    @Test
     void deveRetornarNotFoundAoCriarOrdemDeServicoComClienteInexistenteTest() {
         var cpfInexistente = "12345678909";
 
@@ -613,5 +642,22 @@ class OrdemDeServicoResourceIT {
         } catch (JsonProcessingException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private long valorLong(String sql) {
+        return pgPool.preparedQuery(sql)
+                .execute()
+                .await()
+                .indefinitely()
+                .iterator()
+                .next()
+                .getLong(0);
+    }
+
+    private void executarSql(String sql) {
+        pgPool.preparedQuery(sql)
+                .execute()
+                .await()
+                .indefinitely();
     }
 }

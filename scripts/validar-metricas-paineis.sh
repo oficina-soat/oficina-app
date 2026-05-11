@@ -31,9 +31,15 @@ AUTH_ADMIN_CPF="${AUTH_ADMIN_CPF:-84191404067}"
 AUTH_MECANICO_CPF="${AUTH_MECANICO_CPF:-36655462007}"
 AUTH_RECEPCIONISTA_CPF="${AUTH_RECEPCIONISTA_CPF:-17245011010}"
 SKIP_MAGIC_LINK="${SKIP_MAGIC_LINK:-false}"
+FORCAR_FALHAS_INTEGRACAO="${FORCAR_FALHAS_INTEGRACAO:-true}"
+FORCAR_FALHAS_OS="${FORCAR_FALHAS_OS:-true}"
 EXECUCOES="${EXECUCOES:-${RUNS:-1}}"
 RUN_FOREVER="${RUN_FOREVER:-false}"
 PAUSE_SECONDS="${PAUSE_SECONDS:-0}"
+CURL_RETRIES="${CURL_RETRIES:-3}"
+CURL_RETRY_DELAY="${CURL_RETRY_DELAY:-2}"
+CURL_CONNECT_TIMEOUT="${CURL_CONNECT_TIMEOUT:-10}"
+CURL_MAX_TIME="${CURL_MAX_TIME:-60}"
 
 RUN_SEED_BASE="${RUN_SEED:-}"
 RUN_LABEL_BASE="${RUN_LABEL:-metrics}"
@@ -73,10 +79,14 @@ Variaveis principais:
   OFICINA_AUTH_BASE_URL     Base do auth/API Gateway para POST /auth/token
   AUTH_PASSWORD             Senha dos usuarios seed do lab. Default: secret
   SKIP_MAGIC_LINK           true|false. Default: false
+  FORCAR_FALHAS_INTEGRACAO  true|false. Gera falha esperada na notificacao. Default: true
+  FORCAR_FALHAS_OS          true|false. Gera falhas esperadas no processamento da OS. Default: true
   EXECUCOES                 Quantidade de execucoes. Default: 1
   RUNS                      Alias de EXECUCOES
   RUN_FOREVER               true|false. Quando true, roda ate Ctrl+C. Default: false
   PAUSE_SECONDS             Pausa entre execucoes. Default: 0
+  CURL_RETRIES              Novas tentativas para falhas de rede. Default: 3
+  CURL_RETRY_DELAY          Pausa entre novas tentativas HTTP. Default: 2
   STOP_PORT_FORWARD_ON_EXIT true|false. Default: false
 
 Exemplos:
@@ -118,6 +128,14 @@ validate_loop_config() {
 
   if [[ -n "${RUN_SEED_BASE}" ]] && ! [[ "${RUN_SEED_BASE}" =~ ^[0-9]+$ ]]; then
     fail "RUN_SEED deve conter apenas numeros."
+  fi
+
+  if ! [[ "${CURL_RETRIES}" =~ ^[0-9]+$ ]]; then
+    fail "CURL_RETRIES deve ser um inteiro maior ou igual a zero."
+  fi
+
+  if ! [[ "${CURL_RETRY_DELAY}" =~ ^[0-9]+$ ]]; then
+    fail "CURL_RETRY_DELAY deve ser um inteiro maior ou igual a zero."
   fi
 }
 
@@ -293,6 +311,25 @@ wait_for_port() {
   fail "Porta local ${port} nao ficou acessivel."
 }
 
+wait_for_app_http() {
+  local pid="${1:-}"
+  local log_file="${2:-}"
+
+  for _ in {1..30}; do
+    if app_http_available; then
+      return 0
+    fi
+    if [[ -n "${pid}" ]] && ! kill -0 "${pid}" >/dev/null 2>&1; then
+      [[ -n "${log_file}" ]] && tail -40 "${log_file}" >&2 || true
+      fail "Port-forward encerrou antes da aplicacao responder em ${APP_BASE_URL}."
+    fi
+    sleep 1
+  done
+
+  [[ -n "${log_file}" ]] && tail -40 "${log_file}" >&2 || true
+  fail "Aplicacao nao respondeu em ${APP_BASE_URL}."
+}
+
 start_port_forward() {
   [[ "${ENABLE_PORT_FORWARD}" == "true" ]] || return 0
 
@@ -307,15 +344,22 @@ start_port_forward() {
     local existing_pid
     existing_pid="$(cat "${pid_file}")"
     if kill -0 "${existing_pid}" >/dev/null 2>&1 && pid_is_port_forward "${existing_pid}" && local_port_open "${APP_LOCAL_PORT}"; then
-      log "Port-forward ja ativo para ${APP_NAMESPACE}/${APP_SERVICE} em ${APP_BASE_URL} (pid ${existing_pid})."
-      return 0
+      if app_http_available; then
+        log "Port-forward ja ativo para ${APP_NAMESPACE}/${APP_SERVICE} em ${APP_BASE_URL} (pid ${existing_pid})."
+        return 0
+      fi
+      log "Port-forward salvo em ${pid_file} nao responde HTTP; reiniciando."
+      kill "${existing_pid}" >/dev/null 2>&1 || true
     fi
     rm -f "${pid_file}"
   fi
 
   if local_port_open "${APP_LOCAL_PORT}"; then
-    log "Porta local ${APP_LOCAL_PORT} ja esta aberta; usando ${APP_BASE_URL} sem iniciar novo port-forward."
-    return 0
+    if app_http_available; then
+      log "Porta local ${APP_LOCAL_PORT} ja esta aberta; usando ${APP_BASE_URL} sem iniciar novo port-forward."
+      return 0
+    fi
+    fail "Porta local ${APP_LOCAL_PORT} esta aberta, mas ${APP_BASE_URL} nao respondeu como a aplicacao."
   fi
 
   if ! kubectl get svc "${APP_SERVICE}" --namespace "${APP_NAMESPACE}" >/dev/null 2>&1; then
@@ -338,6 +382,7 @@ start_port_forward() {
   STARTED_PF_PID="$!"
   echo "${STARTED_PF_PID}" > "${pid_file}"
   wait_for_port "${APP_LOCAL_PORT}" "${STARTED_PF_PID}" "${log_file}"
+  wait_for_app_http "${STARTED_PF_PID}" "${log_file}"
   log "Port-forward ativo em ${APP_BASE_URL}. Logs: ${log_file}"
 }
 
@@ -360,7 +405,9 @@ curl_request() {
   local expected_status
   local status_ok="false"
   local request_id="${RUN_LABEL}-$(date +%s%N)"
-  local args=(-sS -o "${response_file}" -w "%{http_code}" -X "${method}" -H "X-Request-Id: ${request_id}")
+  local attempt=1
+  local max_attempts=$((CURL_RETRIES + 1))
+  local args=(-sS -o "${response_file}" -w "%{http_code}" --connect-timeout "${CURL_CONNECT_TIMEOUT}" --max-time "${CURL_MAX_TIME}" -X "${method}" -H "X-Request-Id: ${request_id}")
 
   if [[ -n "${token}" ]]; then
     args+=(-H "Authorization: Bearer ${token}")
@@ -370,10 +417,20 @@ curl_request() {
     args+=(-H "Content-Type: ${content_type}" --data "${body}")
   fi
 
-  status="$(curl "${args[@]}" "${url}")" || {
-    cat "${response_file}" >&2 2>/dev/null || true
-    fail "Falha de rede em ${method} ${url}"
-  }
+  while true; do
+    if status="$(curl "${args[@]}" "${url}")"; then
+      break
+    fi
+
+    if (( attempt >= max_attempts )); then
+      cat "${response_file}" >&2 2>/dev/null || true
+      fail "Falha de rede em ${method} ${url}"
+    fi
+
+    log "Falha de rede em ${method} ${url}; nova tentativa ${attempt}/${CURL_RETRIES} em ${CURL_RETRY_DELAY}s."
+    attempt=$((attempt + 1))
+    sleep "${CURL_RETRY_DELAY}"
+  done
 
   LAST_BODY="$(cat "${response_file}")"
   rm -f "${response_file}"
@@ -423,6 +480,7 @@ dev_jwt_token() {
 
 discover_k8s_auth_config() {
   command -v kubectl >/dev/null 2>&1 || return 0
+  ensure_kubeconfig
 
   local issuer
   issuer="$(kubectl get configmap "${AUTH_CONFIGMAP}" --namespace "${APP_NAMESPACE}" \
@@ -728,12 +786,56 @@ test_order_lifecycle() {
   assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
 }
 
+test_integration_failures() {
+  log "Forcando falha esperada de integracao com notificacao."
+
+  local integration_failure_os_id invalid_email
+
+  api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
+  integration_failure_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  invalid_email="$(printf 'destino-invalido\nx-oficina-validacao-%s' "${RUN_SEED}")"
+
+  api POST "/ordem-de-servico/${integration_failure_os_id}/enviar-link-magico" "400,500,502,503" "${RECEPCIONISTA_TOKEN}" "$(
+    jq -cn --arg email "${invalid_email}" '{email:$email}'
+  )"
+}
+
+test_order_processing_failures() {
+  log "Forcando falhas esperadas de processamento da OS."
+
+  local invalid_transition_os_id stock_failure_os_id stock_failure_cliente_cpf stock_failure_placa
+
+  api POST "/ordem-de-servico" 200 "${RECEPCIONISTA_TOKEN}" '{"cpfCliente":"50132372037","placaVeiculo":"ABC1234"}'
+  invalid_transition_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  api POST "/ordem-de-servico/${invalid_transition_os_id}/finalizar" 409 "${MECANICO_TOKEN}"
+  api GET "/ordem-de-servico/${invalid_transition_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "RECEBIDA"'
+
+  stock_failure_cliente_cpf="$(cpf_from_seed "$((RUN_SEED + 55))")"
+  stock_failure_placa="$(plate_from_seed "$((RUN_SEED + 55))")"
+  api POST "/ordem-de-servico/completa" 200 "${RECEPCIONISTA_TOKEN}" "$(
+    jq -cn \
+      --arg documento "${stock_failure_cliente_cpf}" \
+      --arg nome "Cliente OS Falha ${RUN_LABEL}" \
+      --arg email "os-falha-${RUN_SEED}@oficina.local" \
+      --arg placa "${stock_failure_placa}" \
+      '{documentoDoCliente:$documento,nomeDoCliente:$nome,emailDoCliente:$email,placaDoVeiculo:$placa,marcaDoVeiculo:"Marca Lab",modeloDoVeiculo:"Modelo Lab",ano:2026,servicos:[{servicoId:1,quantidade:1.000,valorUnitario:100.00}],pecas:[{pecaId:1,quantidade:999999.000,valorUnitario:50.00}]}'
+  )"
+  stock_failure_os_id="$(jq -er '.ordemDeServicoId' <<<"${LAST_BODY}")"
+  api POST "/ordem-de-servico/${stock_failure_os_id}/finalizar-diagnostico" 409 "${MECANICO_TOKEN}"
+  api GET "/ordem-de-servico/${stock_failure_os_id}/estado-atual" "200,204" "${ADMIN_TOKEN}"
+  assert_json_field_if_body '.estado == "EM_DIAGNOSTICO"'
+}
+
 validate_metrics() {
   log "Validando metricas Prometheus geradas pelo fluxo."
   api GET "/q/metrics" 200 "${ADMIN_TOKEN}"
   assert_metric "os_created_total"
   assert_metric "os_status_transition_total"
   assert_metric "os_status_duration_ms"
+  if is_truthy "${FORCAR_FALHAS_INTEGRACAO}"; then
+    assert_metric "integration_failures_total"
+  fi
   log "Metricas de OS encontradas em /q/metrics."
 }
 
@@ -747,6 +849,16 @@ run_validation_once() {
   test_common_apis
   test_catalog_stock_vehicle_apis
   test_order_lifecycle
+  if is_truthy "${FORCAR_FALHAS_INTEGRACAO}"; then
+    test_integration_failures
+  else
+    log "Falhas de integracao ignoradas por FORCAR_FALHAS_INTEGRACAO=false."
+  fi
+  if is_truthy "${FORCAR_FALHAS_OS}"; then
+    test_order_processing_failures
+  else
+    log "Falhas de processamento da OS ignoradas por FORCAR_FALHAS_OS=false."
+  fi
   validate_metrics
   log "Execucao ${iteration} concluida."
 }
@@ -764,7 +876,7 @@ main() {
   mkdir -p "${TMP_DIR}"
   trap cleanup EXIT
 
-  log "Configuracao: MODO_ACESSO=${MODO_ACESSO}, APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}, EXECUCOES=${EXECUCOES}, RUN_FOREVER=${RUN_FOREVER}."
+  log "Configuracao: MODO_ACESSO=${MODO_ACESSO}, APP_BASE_URL=${APP_BASE_URL}, AUTH_MODE=${AUTH_MODE}, EKS_CLUSTER_NAME=${EKS_CLUSTER_NAME}, EXECUCOES=${EXECUCOES}, RUN_FOREVER=${RUN_FOREVER}, FORCAR_FALHAS_INTEGRACAO=${FORCAR_FALHAS_INTEGRACAO}, FORCAR_FALHAS_OS=${FORCAR_FALHAS_OS}."
   start_port_forward
 
   local iteration=1
@@ -786,7 +898,11 @@ main() {
     fi
   done
 
-  log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+  if [[ "${ENABLE_PORT_FORWARD}" == "true" ]]; then
+    log "Validacao concluida. Port-forward mantido em ${APP_BASE_URL}; PIDs/logs em ${PF_DIR}."
+  else
+    log "Validacao concluida em ${APP_BASE_URL}."
+  fi
 }
 
 main "$@"
