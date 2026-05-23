@@ -4,17 +4,22 @@ O repositório usa o GitHub Environment `lab` e segue o ciclo de versionamento d
 
 Workflows disponíveis:
 
-- `./.github/workflows/ci.yml`
-- `./.github/workflows/build-deploy-app-lab.yml`
-- `./.github/workflows/redeploy-app-lab.yml`
+- `./.github/workflows/open-pr-to-main.yml`
+- `./.github/workflows/deploy-app-lab.yml`
+
+No fluxo principal da suíte, este workflow é disparado pelo encadeamento `oficina-infra-k8s -> oficina-infra-db -> oficina-app`. O deploy manual por `Deploy App Lab` é reservado para operação pontual da aplicação em `main`.
+
+Depois do deploy integrado, o teste principal é:
+
+```bash
+MODO_ACESSO=aws ./scripts/validar-metricas-paineis.sh
+```
 
 ## Gatilho
 
 - `push` em `develop`: executa testes unitários e de integração e abre o PR `develop -> main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
-- `push` em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
-- `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes; não publica imagem nem executa deploy
-- `workflow_dispatch` em `build-deploy-app-lab.yml`: avalia release, imagem no ECR e estado do Deployment no EKS para decidir se precisa buildar, criar release e/ou fazer deploy
-- `workflow_dispatch` em `redeploy-app-lab.yml`: redeploy manual da imagem da release já fechada, somente quando a branch selecionada for `main`
+- `push` em `main`: avalia o estado da release, da imagem no ECR e do Deployment no EKS, criando imagem, release e rollout apenas quando necessário
+- `workflow_dispatch` em `deploy-app-lab.yml`: avalia release, imagem no ECR e estado do Deployment no EKS para decidir se precisa buildar, criar release e/ou fazer deploy
 
 Os workflows que alteram a aplicação no cluster compartilham o grupo de `concurrency` `lab-app`, evitando deploys simultâneos do app.
 
@@ -37,7 +42,7 @@ No fluxo automático, os testes unitários e de integração rodam antes, no `pu
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
-O workflow manual `Build Deploy App Lab` segue esta matriz de decisão:
+O workflow manual `Deploy App Lab` segue esta matriz de decisão:
 
 - release ausente + imagem ausente no ECR: valida, faz build, publica a imagem, cria a release e faz deploy se o EKS ainda não estiver nessa versão
 - release ausente + imagem presente no ECR: cria a release e faz deploy apenas se o EKS ainda não estiver nessa versão
@@ -145,19 +150,21 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `OTEL_METRICS_EXPORTER`: default `none`
 - `OTEL_LOGS_EXPORTER`: default `none`
 
-## Redeploy manual
+## Deploy manual
 
-Use `Redeploy App Lab` quando precisar republicar no EKS uma imagem já fechada em release, sem gerar nova imagem.
+Use `Deploy App Lab` quando precisar executar pontualmente o fluxo idempotente da aplicação em `main`. O caminho principal da suíte continua sendo o `Deploy Lab` do `../oficina-infra-k8s`, que dispara este workflow ao final do deploy do banco.
 
 O workflow executa:
 
 - validação da release `v<project.version>`
 - validação da imagem `<ecr-url>:<project.version>` no ECR
-- rollout do Deployment `oficina-app`
+- build e publicação da imagem quando ela ainda não existe
+- criação da release quando ela ainda não existe
+- rollout do Deployment `oficina-app` quando ele ainda não estiver na imagem esperada
 
 Selecione a branch `main` ao executar o workflow. Em outras branches, os jobs ficam bloqueados por guarda explícita.
 
-Se o laboratório tiver sido recriado e a imagem da release atual não estiver mais no ECR, esse workflow falha na validação da tag e orienta a executar `Build Deploy App Lab`, que cria uma nova imagem publicada com a próxima versão disponível.
+Se o laboratório tiver sido recriado e a release atual existir mas a imagem não estiver mais no ECR, o workflow não reconstrói a mesma versão. Ele abre um PR automático de bump para `main`; depois do merge, execute novamente `Deploy App Lab` ou rode o fluxo principal a partir do `oficina-infra-k8s`.
 
 ## Validação local
 
