@@ -1,5 +1,21 @@
 # oficina-app
 
+## Propósito
+
+API principal da Oficina, responsável pelos fluxos de atendimento, clientes, veículos, ordens de serviço, catálogo de peças/serviços e estoque. O serviço é uma aplicação Quarkus publicada como imagem Docker no ECR e executada no EKS do laboratório, consumindo o PostgreSQL do `oficina-infra-db` e os tokens emitidos pelo `oficina-auth-lambda`.
+
+## Tecnologias utilizadas
+
+- Java 25
+- Quarkus 3.31.x
+- Maven Wrapper
+- Quarkus REST, Jackson e SmallRye OpenAPI/Swagger UI
+- Hibernate Reactive Panache e Reactive PostgreSQL Client
+- SmallRye JWT e REST Client
+- Micrometer Prometheus e OpenTelemetry
+- PostgreSQL, Docker Compose, Docker, ECR e EKS
+- Kubernetes manifests em `k8s/` e GitHub Actions
+
 ## Deploy e teste da suíte
 
 O deploy integrado não deve começar por este repositório. Depois de promover as mudanças necessárias para `main`, execute o deploy pelo repositório `../oficina-infra-k8s`:
@@ -109,6 +125,21 @@ flowchart LR
     API --> JWT[JWT / Autenticação]
     API --> METRICS[Métricas Prometheus]
     API --> TRACE[OpenTelemetry]
+```
+
+## Swagger, OpenAPI e Postman
+
+O contrato HTTP é publicado pelo Swagger UI/OpenAPI gerado pelo Quarkus. Não há coleção Postman versionada neste repositório; importe o OpenAPI abaixo no Postman quando precisar de uma coleção.
+
+- Swagger UI local: `http://localhost:8080/q/swagger-ui/`
+- OpenAPI local: `http://localhost:8080/q/openapi`
+- Swagger UI no lab: `<oficina_app_public_base_url>/q/swagger-ui/`
+- OpenAPI no lab: `<oficina_app_public_base_url>/q/openapi`
+- Para descobrir a base pública no lab:
+
+```bash
+cd ../oficina-infra-k8s
+terraform -chdir=terraform/environments/lab output -raw oficina_app_public_base_url
 ```
 
 ## Observabilidade
