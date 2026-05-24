@@ -4,17 +4,22 @@ O repositório usa o GitHub Environment `lab` e segue o ciclo de versionamento d
 
 Workflows disponíveis:
 
-- `./.github/workflows/ci.yml`
-- `./.github/workflows/build-deploy-app-lab.yml`
-- `./.github/workflows/redeploy-app-lab.yml`
+- `./.github/workflows/open-pr-to-main.yml`
+- `./.github/workflows/deploy-app-lab.yml`
+
+No fluxo principal da suíte, este workflow é disparado pelo encadeamento `oficina-infra-k8s -> oficina-infra-db -> oficina-app`. O deploy manual por `Deploy App Lab` é reservado para operação pontual da aplicação em `main`.
+
+Depois do deploy integrado, o teste principal é:
+
+```bash
+MODO_ACESSO=aws ./scripts/validar-metricas-paineis.sh
+```
 
 ## Gatilho
 
 - `push` em `develop`: executa testes unitários e de integração e abre o PR `develop -> main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
-- `push` em `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS
-- `workflow_dispatch` em `ci.yml`: respeita a branch selecionada; executa testes; não publica imagem nem executa deploy
-- `workflow_dispatch` em `build-deploy-app-lab.yml`: avalia release, imagem no ECR e estado do Deployment no EKS para decidir se precisa buildar, criar release e/ou fazer deploy
-- `workflow_dispatch` em `redeploy-app-lab.yml`: redeploy manual da imagem da release já fechada, somente quando a branch selecionada for `main`
+- `push` em `main`: avalia o estado da release, da imagem no ECR e do Deployment no EKS, criando imagem, release e rollout apenas quando necessário
+- `workflow_dispatch` em `deploy-app-lab.yml`: avalia release, imagem no ECR e estado do Deployment no EKS para decidir se precisa buildar, criar release e/ou fazer deploy
 
 Os workflows que alteram a aplicação no cluster compartilham o grupo de `concurrency` `lab-app`, evitando deploys simultâneos do app.
 
@@ -37,7 +42,7 @@ No fluxo automático, os testes unitários e de integração rodam antes, no `pu
 
 O PR automático não é aberto para versões `-SNAPSHOT`. Versões em `main` também não podem terminar com `-SNAPSHOT` quando houver deploy pendente. Se a versão mudar para uma release que já existe, o workflow falha em `main` e exige incremento de versão antes de gerar outra imagem.
 
-O workflow manual `Build Deploy App Lab` segue esta matriz de decisão:
+O workflow manual `Deploy App Lab` segue esta matriz de decisão:
 
 - release ausente + imagem ausente no ECR: valida, faz build, publica a imagem, cria a release e faz deploy se o EKS ainda não estiver nessa versão
 - release ausente + imagem presente no ECR: cria a release e faz deploy apenas se o EKS ainda não estiver nessa versão
@@ -67,7 +72,7 @@ O secret Kubernetes `oficina-jwt-keys` é derivado do AWS Secrets Manager por pa
 
 Esse fluxo remove a necessidade de cadastrar chaves JWT como GitHub Secrets neste repositório. Para o `oficina-auth-lambda` emitir tokens compatíveis, ele também precisa usar o mesmo par de chaves do Secrets Manager, ou o secret `oficina/lab/jwt` precisa ser criado manualmente com o par atualmente usado pelo lambda antes do primeiro deploy deste app.
 
-Quando a autenticação estiver publicada no API Gateway, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` por `API_GATEWAY_ID`, depois por `API_GATEWAY_NAME` e, no padrão do laboratório, por `<EKS_CLUSTER_NAME>-http-api`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Se encontrar a combinação legada `OFICINA_AUTH_ISSUER=oficina-api` e `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`, o script migra automaticamente para o gateway público para manter o issuer alinhado ao `oficina-auth-lambda`. A chamada para a lambda de notificação reutiliza esse mesmo host por default e pode ser sobrescrita por `OFICINA_NOTIFICACAO_BASE_URL`. Para manter o modo legado com chave pública montada em `/jwt/publicKey.pem`, configure os dois valores explicitamente e acrescente `OFICINA_AUTH_FORCE_LEGACY=true`.
+Quando a autenticação estiver publicada no API Gateway, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` por `API_GATEWAY_ID`, depois por `API_GATEWAY_NAME` e, no padrão do laboratório, por `<EKS_CLUSTER_NAME>-http-api`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Se encontrar a combinação legada `OFICINA_AUTH_ISSUER=oficina-api` e `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`, o script migra automaticamente para o gateway público para manter o issuer alinhado ao `oficina-auth-lambda`. Os links mágicos e a chamada para a lambda de notificação reutilizam esse mesmo host por default e podem ser sobrescritos por `OFICINA_MAGIC_LINK_BASE_URL` e `OFICINA_NOTIFICACAO_BASE_URL`. Para manter o modo legado com chave pública montada em `/jwt/publicKey.pem`, configure os dois valores explicitamente e acrescente `OFICINA_AUTH_FORCE_LEGACY=true`.
 
 Rotação de JWT é uma operação explícita. Configure `ROTATE_JWT_SECRET=true` somente quando quiser gerar um novo par de chaves no Secrets Manager; tokens assinados com a chave anterior deixam de validar depois que a aplicação e o emissor passarem a usar a nova chave.
 
@@ -132,6 +137,7 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `OFICINA_AUTH_ISSUER`: issuer esperado nos access tokens; quando vazio, o deploy tenta descobrir pelo API Gateway
 - `OFICINA_AUTH_JWKS_URI`: JWKS ou chave pública usada para validar access tokens; quando vazio e `OFICINA_AUTH_ISSUER` for HTTP(S), o deploy usa `<issuer>/.well-known/jwks.json`
 - `OFICINA_AUTH_FORCE_LEGACY`: default `false`; quando `true`, preserva explicitamente o modo legado `oficina-api` + `file:/jwt/publicKey.pem`
+- `OFICINA_MAGIC_LINK_BASE_URL`: opcional; quando ausente, os links mágicos reutilizam o host descoberto de `OFICINA_AUTH_ISSUER`
 - `OFICINA_NOTIFICACAO_BASE_URL`: opcional; quando ausente, o app reutiliza o host descoberto de `OFICINA_AUTH_ISSUER`
 - `OFICINA_OBSERVABILITY_ENABLED`: default `true`
 - `OFICINA_OBSERVABILITY_JSON_LOGS_ENABLED`: default `true`
@@ -145,19 +151,21 @@ Como o laboratório costuma recriar as credenciais a cada sessão, atualize esse
 - `OTEL_METRICS_EXPORTER`: default `none`
 - `OTEL_LOGS_EXPORTER`: default `none`
 
-## Redeploy manual
+## Deploy manual
 
-Use `Redeploy App Lab` quando precisar republicar no EKS uma imagem já fechada em release, sem gerar nova imagem.
+Use `Deploy App Lab` quando precisar executar pontualmente o fluxo idempotente da aplicação em `main`. O caminho principal da suíte continua sendo o `Deploy Lab` do `../oficina-infra-k8s`, que dispara este workflow ao final do deploy do banco.
 
 O workflow executa:
 
 - validação da release `v<project.version>`
 - validação da imagem `<ecr-url>:<project.version>` no ECR
-- rollout do Deployment `oficina-app`
+- build e publicação da imagem quando ela ainda não existe
+- criação da release quando ela ainda não existe
+- rollout do Deployment `oficina-app` quando ele ainda não estiver na imagem esperada
 
 Selecione a branch `main` ao executar o workflow. Em outras branches, os jobs ficam bloqueados por guarda explícita.
 
-Se o laboratório tiver sido recriado e a imagem da release atual não estiver mais no ECR, esse workflow falha na validação da tag e orienta a executar `Build Deploy App Lab`, que cria uma nova imagem publicada com a próxima versão disponível.
+Se o laboratório tiver sido recriado e a release atual existir mas a imagem não estiver mais no ECR, o workflow não reconstrói a mesma versão. Ele abre um PR automático de bump para `main`; depois do merge, execute novamente `Deploy App Lab` ou rode o fluxo principal a partir do `oficina-infra-k8s`.
 
 ## Validação local
 

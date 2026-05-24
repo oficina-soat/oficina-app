@@ -1,5 +1,43 @@
 # oficina-app
 
+## Propósito
+
+API principal da Oficina, responsável pelos fluxos de atendimento, clientes, veículos, ordens de serviço, catálogo de peças/serviços e estoque. O serviço é uma aplicação Quarkus publicada como imagem Docker no ECR e executada no EKS do laboratório, consumindo o PostgreSQL do `oficina-infra-db` e os tokens emitidos pelo `oficina-auth-lambda`.
+
+## Tecnologias utilizadas
+
+- Java 25
+- Quarkus 3.31.x
+- Maven Wrapper
+- Quarkus REST, Jackson e SmallRye OpenAPI/Swagger UI
+- Hibernate Reactive Panache e Reactive PostgreSQL Client
+- SmallRye JWT e REST Client
+- Micrometer Prometheus e OpenTelemetry
+- PostgreSQL, Docker Compose, Docker, ECR e EKS
+- Kubernetes manifests em `k8s/` e GitHub Actions
+
+## Deploy e teste da suíte
+
+O deploy integrado não deve começar por este repositório. Depois de promover as mudanças necessárias para `main`, execute o deploy pelo repositório `../oficina-infra-k8s`:
+
+```text
+oficina-infra-k8s -> Actions -> Deploy Lab -> Run workflow
+```
+
+O `Deploy Lab` do `oficina-infra-k8s` aplica a infraestrutura e dispara o deploy do `oficina-infra-db`; o deploy do banco executa RDS, migrations e seed e, ao final, dispara automaticamente o workflow `deploy-app-lab.yml` deste repositório e o `deploy-lambda-lab.yml` do `oficina-auth-lambda`. Use o workflow deste repositório diretamente apenas para operação pontual da aplicação, não como caminho principal da suíte.
+
+O teste principal do laboratório fica neste repositório:
+
+```bash
+MODO_ACESSO=aws ./scripts/validar-metricas-paineis.sh
+```
+
+Para rodar via port-forward/local, use o default do script:
+
+```bash
+./scripts/validar-metricas-paineis.sh
+```
+
 Aplicação Quarkus da oficina mecânica, organizada como um monólito modular e publicada no laboratório como imagem Docker em ECR com rollout no EKS.
 
 O repositório segue o mesmo ciclo de versionamento do `oficina-auth-lambda`: a versão fechada vem de `project.version` no `pom.xml`, o `push` em `develop` executa os testes e abre PR para `main`, e o deploy só acontece depois que esse PR é aceito.
@@ -55,8 +93,8 @@ A aplicação depende de contratos e ambientes providos por outros repositórios
 - `scripts/deploy-k8s.sh`: reaplicacao do overlay `lab` e rollout da imagem no EKS
 - `scripts/resolve-image-ref.sh`: resolução da URL/tag da imagem no ECR
 - `k8s/overlays/lab`: manifests mínimos da aplicação alinhados ao overlay `lab` do repo `oficina-infra-k8s`
-- `.github/workflows/ci.yml`: CI/CD principal
-- `.github/workflows/redeploy-app-lab.yml`: redeploy manual da imagem versionada
+- `.github/workflows/open-pr-to-main.yml`: valida `develop` e abre ou atualiza PR para `main`
+- `.github/workflows/deploy-app-lab.yml`: build, publicação, release e deploy idempotente da aplicação no `lab`
 - `docs/github-actions.md`: variáveis, secrets e detalhes dos workflows
 
 ## Arquitetura
@@ -89,6 +127,21 @@ flowchart LR
     API --> TRACE[OpenTelemetry]
 ```
 
+## Swagger, OpenAPI e Postman
+
+O contrato HTTP é publicado pelo Swagger UI/OpenAPI gerado pelo Quarkus. Não há coleção Postman versionada neste repositório; importe o OpenAPI abaixo no Postman quando precisar de uma coleção.
+
+- Swagger UI local: `http://localhost:8080/q/swagger-ui/`
+- OpenAPI local: `http://localhost:8080/q/openapi`
+- Swagger UI no lab: `<oficina_app_public_base_url>/q/swagger-ui/`
+- OpenAPI no lab: `<oficina_app_public_base_url>/q/openapi`
+- Para descobrir a base pública no lab:
+
+```bash
+cd ../oficina-infra-k8s
+terraform -chdir=terraform/environments/lab output -raw oficina_app_public_base_url
+```
+
 ## Observabilidade
 
 Esta fase prepara o serviço para qualquer backend observability compatível com OTLP, sem dependência direta de vendor.
@@ -118,6 +171,7 @@ Env vars padronizadas:
 - `OTEL_TRACES_EXPORTER`
 - `OTEL_METRICS_EXPORTER`
 - `OTEL_LOGS_EXPORTER`
+- `OFICINA_MAGIC_LINK_BASE_URL`
 - `OFICINA_OBSERVABILITY_ENABLED`
 - `OFICINA_OBSERVABILITY_JSON_LOGS_ENABLED`
 - `OFICINA_OBSERVABILITY_METRICS_ENABLED`
@@ -201,11 +255,12 @@ Para gerar a imagem localmente:
 
 ## Deploy
 
-O deploy automatizado fica em [`.github/workflows/ci.yml`](.github/workflows/ci.yml):
+O caminho principal de deploy da suíte começa no `../oficina-infra-k8s`, pelo workflow `Deploy Lab`. Este repositório mantém o workflow [`.github/workflows/deploy-app-lab.yml`](.github/workflows/deploy-app-lab.yml), que é disparado automaticamente pelo encadeamento `oficina-infra-k8s -> oficina-infra-db -> oficina-app` e também pode ser executado manualmente em `main` para operação pontual da aplicação.
 
-- `develop`: executa testes unitários e de integração e abre PR para `main` quando houver diferença de conteúdo e ainda não existir PR aberto, mesmo quando a release da versão atual já existe
-- `main`: cria a imagem Docker, publica no ECR, cria a GitHub Release e executa o rollout no EKS após o merge do PR
-- `Build Deploy App Lab`: workflow manual em `main` para validar, gerar nova imagem versionada, publicar no ECR, criar a release e fazer o deploy no EKS
+Workflows deste repositório:
+
+- `open-pr-to-main.yml`: executa a verificação Maven em pushes para `develop` e abre ou atualiza PR para `main`
+- `deploy-app-lab.yml`: em `main`, cria a imagem Docker quando necessário, publica no ECR, cria a GitHub Release quando necessário e executa o rollout no EKS quando o Deployment ainda não estiver na imagem esperada
 
 Quando a release da versão atual já existe, commits novos continuam passando por testes e PR, mas o merge em `main` não gera build de imagem, release nem deploy. Em `main`, versões fechadas não podem terminar com `-SNAPSHOT` quando houver deploy pendente, e uma versão já publicada não é sobrescrita.
 
@@ -218,27 +273,19 @@ Em todos os deploys, `scripts/deploy-k8s.sh` valida o secret de banco, cria/atua
 
 Por padrão, o deploy exige o secret `oficina-database-env`, porque a aplicação precisa das variáveis `QUARKUS_DATASOURCE_USERNAME`, `QUARKUS_DATASOURCE_PASSWORD` e `QUARKUS_DATASOURCE_REACTIVE_URL` para iniciar no perfil de produção. Se ele não existir no cluster, o workflow tenta recriá-lo automaticamente a partir do AWS Secrets Manager usando `K8S_DATABASE_SECRET_ID=oficina/lab/database/app`, alinhado ao `../oficina-infra-db`. Quando esse secret da aplicação ainda não existir, o deploy tenta descobrir o secret master do RDS `DB_INSTANCE_IDENTIFIER=oficina-postgres-lab` para bootstrap do laboratório. Para permitir deploy sem banco, configure `REQUIRE_K8S_DB_SECRET=false`.
 
-As chaves JWT não precisam ser cadastradas como GitHub Secrets neste repositório. Por padrão, o deploy usa o AWS Secrets Manager como origem (`JWT_SECRET_NAME=oficina/lab/jwt`) e cria o par RSA se ele ainda não existir. O secret Kubernetes `oficina-jwt-keys` é atualizado a partir desse valor em cada deploy. Para manter compatibilidade com tokens emitidos pelo `oficina-auth-lambda`, o lambda deve usar o mesmo secret do Secrets Manager, ou esse secret deve ser criado previamente com o par de chaves já usado pelo lambda. No ambiente `lab`, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` pelo HTTP API padrão `<EKS_CLUSTER_NAME>-http-api`, ou pelos overrides `API_GATEWAY_ID` e `API_GATEWAY_NAME`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Quando encontrar a configuração legada `OFICINA_AUTH_ISSUER=oficina-api` com `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`, o script migra automaticamente para o issuer público do gateway para evitar divergência com os tokens emitidos pela lambda. A integração de notificação usa o mesmo host por padrão e pode ser sobrescrita com `OFICINA_NOTIFICACAO_BASE_URL`. Para manter o modo legado com chave montada, informe os dois valores explicitamente e acrescente `OFICINA_AUTH_FORCE_LEGACY=true`.
+As chaves JWT não precisam ser cadastradas como GitHub Secrets neste repositório. Por padrão, o deploy usa o AWS Secrets Manager como origem (`JWT_SECRET_NAME=oficina/lab/jwt`) e cria o par RSA se ele ainda não existir. O secret Kubernetes `oficina-jwt-keys` é atualizado a partir desse valor em cada deploy. Para manter compatibilidade com tokens emitidos pelo `oficina-auth-lambda`, o lambda deve usar o mesmo secret do Secrets Manager, ou esse secret deve ser criado previamente com o par de chaves já usado pelo lambda. No ambiente `lab`, o deploy tenta descobrir `OFICINA_AUTH_ISSUER` pelo HTTP API padrão `<EKS_CLUSTER_NAME>-http-api`, ou pelos overrides `API_GATEWAY_ID` e `API_GATEWAY_NAME`. Se `OFICINA_AUTH_JWKS_URI` ficar vazio e o issuer for HTTP(S), o deploy deriva automaticamente `https://.../.well-known/jwks.json`. Quando encontrar a configuração legada `OFICINA_AUTH_ISSUER=oficina-api` com `OFICINA_AUTH_JWKS_URI=file:/jwt/publicKey.pem`, o script migra automaticamente para o issuer público do gateway para evitar divergência com os tokens emitidos pela lambda. Os links mágicos e a integração de notificação usam esse mesmo host por padrão e podem ser sobrescritos por `OFICINA_MAGIC_LINK_BASE_URL` e `OFICINA_NOTIFICACAO_BASE_URL`. Para manter o modo legado com chave montada, informe os dois valores explicitamente e acrescente `OFICINA_AUTH_FORCE_LEGACY=true`.
 
 Detalhes de variáveis, secrets e workflows auxiliares: [docs/github-actions.md](docs/github-actions.md).
 
 ## Operações manuais
 
-Build, publicação e deploy manual de uma nova versão fechada em `main`:
+Build, publicação, release e deploy idempotente de uma versão fechada em `main`:
 
 ```text
-Actions -> Build Deploy App Lab -> Run workflow
+Actions -> Deploy App Lab -> Run workflow
 ```
 
 Esse workflow decide a execução em três etapas: verifica se a release atual existe, verifica se a imagem versionada existe no ECR e verifica se o Deployment no EKS já está na imagem esperada. Com isso, ele só faz build quando a imagem ainda não existe, só cria release quando ela ainda não existe e só faz deploy quando o EKS ainda não está na versão esperada. Se a release existir mas a imagem tiver sumido do ECR, o workflow não reconstrói a mesma versão: ele abre um PR automático de bump para `main` e, depois do merge, deve ser executado novamente para publicar e fazer o deploy.
-
-Redeploy da imagem versionada já fechada em `main`:
-
-```text
-Actions -> Redeploy App Lab -> Run workflow
-```
-
-Use `Redeploy App Lab` apenas quando a release atual já existir e o repositório ECR continuar disponível. Se a infra tiver sido recriada e o ECR não existir, recrie primeiro o repositório pelo `../oficina-infra-k8s`.
 
 ## Validação local
 

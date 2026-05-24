@@ -81,7 +81,7 @@ Este projeto depende de versionamento explícito para gerar novo build, release 
 - Sempre que for necessário refazer build publicado, gerar nova release ou disparar novo ciclo de deploy, atualize a versão do projeto antes.
 - Não reutilize a mesma versão para tentar forçar nova imagem, nova release ou novo rollout.
 - Ao alterar algo que impacte artefato publicado, confirme se a mudança também exige incremento de versão.
-- Preserve compatibilidade com os workflows em `.github/workflows/ci.yml` e `.github/workflows/redeploy-app-lab.yml`.
+- Preserve compatibilidade com os workflows em `.github/workflows/open-pr-to-main.yml` e `.github/workflows/deploy-app-lab.yml`.
 
 Comandos relevantes:
 

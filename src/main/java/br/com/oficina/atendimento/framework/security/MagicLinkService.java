@@ -16,7 +16,7 @@ import java.util.concurrent.CompletableFuture;
 @ApplicationScoped
 public class MagicLinkService {
 
-    @ConfigProperty(name = "oficina.magic-link.base-url", defaultValue = "http://localhost:8080")
+    @ConfigProperty(name = "oficina.magic-link.base-url")
     String baseUrl;
 
     @Inject ActionTokenService actionTokenService;
@@ -50,12 +50,13 @@ public class MagicLinkService {
                         actionTokenService.gerarUni(ActionTokenAction.APROVAR, ordemDeServicoId, email),
                         actionTokenService.gerarUni(ActionTokenAction.RECUSAR, ordemDeServicoId, email)
                 ).asTuple().map(tokens -> {
+                    var magicLinkBaseUrl = normalizedBaseUrl();
                     var acompanhar = "%s/ordem-de-servico/%s/acompanhar-link?actionToken=%s"
-                            .formatted(baseUrl, ordemDeServicoId, encode(tokens.getItem1()));
+                            .formatted(magicLinkBaseUrl, ordemDeServicoId, encode(tokens.getItem1()));
                     var aprovar = "%s/ordem-de-servico/%s/aprovar-link?actionToken=%s"
-                            .formatted(baseUrl, ordemDeServicoId, encode(tokens.getItem2()));
+                            .formatted(magicLinkBaseUrl, ordemDeServicoId, encode(tokens.getItem2()));
                     var recusar = "%s/ordem-de-servico/%s/recusar-link?actionToken=%s"
-                            .formatted(baseUrl, ordemDeServicoId, encode(tokens.getItem3()));
+                            .formatted(magicLinkBaseUrl, ordemDeServicoId, encode(tokens.getItem3()));
                     return new MagicLinks(acompanhar, aprovar, recusar);
                 }))
                 .subscribeAsCompletionStage()
@@ -64,6 +65,10 @@ public class MagicLinkService {
 
     private static String encode(String value) {
         return URLEncoder.encode(value, StandardCharsets.UTF_8);
+    }
+
+    private String normalizedBaseUrl() {
+        return baseUrl.endsWith("/") ? baseUrl.substring(0, baseUrl.length() - 1) : baseUrl;
     }
 
     public record MagicLinks(String acompanhar, String aprovar, String recusar) {
