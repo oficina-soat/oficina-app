@@ -28,6 +28,7 @@ REGENERATE_JWT="${REGENERATE_JWT:-false}"
 OFICINA_AUTH_ISSUER="${OFICINA_AUTH_ISSUER:-}"
 OFICINA_AUTH_JWKS_URI="${OFICINA_AUTH_JWKS_URI:-}"
 OFICINA_AUTH_FORCE_LEGACY="${OFICINA_AUTH_FORCE_LEGACY:-false}"
+OFICINA_MAGIC_LINK_BASE_URL="${OFICINA_MAGIC_LINK_BASE_URL:-}"
 API_GATEWAY_ID="${API_GATEWAY_ID:-}"
 API_GATEWAY_NAME="${API_GATEWAY_NAME:-${EKS_CLUSTER_NAME:+${EKS_CLUSTER_NAME}-http-api}}"
 
@@ -161,6 +162,18 @@ Para usar o modo legado com chave montada, configure explicitamente:
   OFICINA_AUTH_FORCE_LEGACY=true
 EOF
     exit 1
+  fi
+}
+
+prepare_magic_link_config() {
+  OFICINA_MAGIC_LINK_BASE_URL="$(normalize_url_like_value "${OFICINA_MAGIC_LINK_BASE_URL}")"
+
+  if [[ -z "${OFICINA_MAGIC_LINK_BASE_URL}" ]]; then
+    if [[ "${OFICINA_AUTH_ISSUER}" == http://* || "${OFICINA_AUTH_ISSUER}" == https://* ]]; then
+      OFICINA_MAGIC_LINK_BASE_URL="${OFICINA_AUTH_ISSUER}"
+    else
+      OFICINA_MAGIC_LINK_BASE_URL="http://localhost:8080"
+    fi
   fi
 }
 
@@ -371,13 +384,16 @@ render_overlay() {
   local escaped_image_ref
   local escaped_auth_issuer
   local escaped_auth_jwks_uri
+  local escaped_magic_link_base_url
   escaped_image_ref="$(escape_sed_replacement "${IMAGE_REF}")"
   escaped_auth_issuer="$(escape_sed_replacement "${OFICINA_AUTH_ISSUER}")"
   escaped_auth_jwks_uri="$(escape_sed_replacement "${OFICINA_AUTH_JWKS_URI}")"
+  escaped_magic_link_base_url="$(escape_sed_replacement "${OFICINA_MAGIC_LINK_BASE_URL}")"
   kubectl kustomize "${K8S_APP_OVERLAY}" |
     sed "s|IMAGE_PLACEHOLDER|${escaped_image_ref}|g" |
     sed "s|OFICINA_AUTH_ISSUER_PLACEHOLDER|${escaped_auth_issuer}|g" |
-    sed "s|OFICINA_AUTH_JWKS_URI_PLACEHOLDER|${escaped_auth_jwks_uri}|g"
+    sed "s|OFICINA_AUTH_JWKS_URI_PLACEHOLDER|${escaped_auth_jwks_uri}|g" |
+    sed "s|OFICINA_MAGIC_LINK_BASE_URL_PLACEHOLDER|${escaped_magic_link_base_url}|g"
 }
 
 current_deployment_image() {
@@ -551,6 +567,7 @@ ensure_jwt_secret() {
 }
 
 prepare_auth_config
+prepare_magic_link_config
 
 bootstrap_k8s_app() {
   ensure_db_secret
